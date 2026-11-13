@@ -1,7 +1,8 @@
-// BIDLOCK — lot database.
-// 8 categories x 8 lots = 64 lots. `trueValue` and `tier` are sealed until the verdict;
+// BIDLOCK 2.0 — lot database.
+// 14 categories x 10 lots = 140 lots. `trueValue` and `tier` are sealed until the verdict;
 // `baseAppeal` ("hype") is public and deliberately imperfect: some lots are overhyped,
 // some are sleepers. Synergy tags are public so a lineup can be planned around them.
+// `wikiQuery` is the Wikipedia article whose lead photograph is shown for the lot.
 
 export const TIERS = Object.freeze(['S', 'A', 'B', 'C', 'CURSED']);
 
@@ -20,151 +21,251 @@ export const SYNERGY_TAGS = Object.freeze({
 
 export const SYNERGY_RULE = Object.freeze({ at: 3, bonus: 40, megaAt: 5, megaBonus: 80 });
 
-function lot(category, n, name, tier, trueValue, baseAppeal, synergyTags, colorPalette, proceduralIconType, commentaryLine) {
-  return Object.freeze({
-    id: `${category}-${n}`,
+function build(def) {
+  const palette = Object.freeze(def.palette);
+  const items = def.lots.map(([name, tier, trueValue, baseAppeal, synergyTags, wikiQuery, commentaryLine], i) => Object.freeze({
+    id: `${def.id}-${i + 1}`,
     name,
-    category,
+    category: def.id,
     tier,
     trueValue,
     baseAppeal,
     synergyTags: Object.freeze(synergyTags),
-    colorPalette: Object.freeze(colorPalette),
-    proceduralIconType,
+    colorPalette: palette,
+    proceduralIconType: def.icon,
+    wikiQuery,
     commentaryLine,
-  });
+  }));
+  return Object.freeze({ id: def.id, name: def.name, short: def.short, blurb: def.blurb, icon: def.icon, palette, items: Object.freeze(items) });
 }
 
 export const CATEGORIES = Object.freeze([
-  {
-    id: 'icons',
-    name: 'YouTube Icons',
-    short: 'ICONS',
-    blurb: 'One creator fronts your whole lineup. Choose the face of the channel.',
-    items: [
-      lot('icons', 1, 'The Challenge King', 'S', 97, 98, ['BILLIONAIRE', 'CHAOS'], ['#f2b632', '#1d6fd1'], 'crown', 'He gave away an island before breakfast. Bidding starts at one dollar.'),
-      lot('icons', 2, 'The Brofist Pioneer', 'S', 93, 90, ['NOSTALGIA', 'BILLIONAIRE'], ['#d9412b', '#f4f1e8'], 'play', 'A hundred million fists were bumped. Yours could be next.'),
-      lot('icons', 3, 'The Group-Channel Captain', 'A', 84, 80, ['UK_LEGEND', 'FLEX'], ['#e8e3d4', '#b32020'], 'crown', 'Seven mates, one group chat, and he runs it.'),
-      lot('icons', 4, 'The Chaos Wildcard', 'A', 78, 70, ['CHAOS', 'UK_LEGEND'], ['#39b36b', '#e6dc3c'], 'bolt', 'Nobody knows what he will do next. Including him.'),
-      lot('icons', 5, 'The Tech Reviewer', 'B', 66, 62, ['TECH_HEAD', 'FLEX'], ['#c7352e', '#22262b'], 'phone', 'Crisp footage, matte black everything, and an honest seven out of ten.'),
-      lot('icons', 6, 'The Mystery Uploader', 'B', 55, 45, ['STEALTH', 'CHAOS'], ['#5b6570', '#a9b4bf'], 'eye', 'No face, no schedule, forty million views. A sleeper if I ever saw one.'),
-      lot('icons', 7, '2012 Block-Game Nostalgia', 'C', 38, 58, ['NOSTALGIA', 'BUDGET_KING'], ['#6aa84f', '#7a5230'], 'brick', 'It smells like a school holiday. Sadly, so does the view count.'),
-      lot('icons', 8, 'Clickbait React Channel', 'CURSED', 9, 35, ['BUDGET_KING', 'CHAOS'], ['#e04a1a', '#f6e21d'], 'play', 'You will NOT believe what this lot does to a lineup. Number four will shock you.'),
-    ],
-  },
-  {
-    id: 'rides',
-    name: 'Supercars & Rides',
-    short: 'RIDES',
-    blurb: 'What is parked outside says everything. Or nothing, if it is a unicycle.',
-    items: [
-      lot('rides', 1, 'Hypercar Prototype', 'S', 96, 95, ['SPEED_DEMON', 'BILLIONAIRE'], ['#c9261e', '#15171a'], 'car', 'One of one. Not road legal. Not anything legal.'),
-      lot('rides', 2, 'Twin-Turbo JDM Legend', 'S', 90, 82, ['SPEED_DEMON', 'NOSTALGIA'], ['#2f6fd0', '#e8e8e8'], 'car', 'Two turbos, one poster on every bedroom wall since 1998.'),
-      lot('rides', 3, 'Gold-Wrapped Boxy SUV', 'A', 76, 88, ['FLEX', 'BILLIONAIRE'], ['#d6a419', '#2a2a2a'], 'truck', 'It is loud, it is gold, and it has never once been off-road.'),
-      lot('rides', 4, 'The $4 Bargain Coupe', 'A', 80, 40, ['BUDGET_KING', 'SPEED_DEMON'], ['#3a9a8c', '#d8d2c2'], 'car', 'Do not let the price tag fool you. Somebody always steals this one.'),
-      lot('rides', 5, 'Armoured Angular Truck', 'B', 60, 72, ['MUSCLE', 'TECH_HEAD'], ['#9aa3ab', '#30363c'], 'truck', 'Bulletproof, allegedly. Panel gaps you could post a letter through.'),
-      lot('rides', 6, 'Chopped Hatchback', 'C', 33, 30, ['UK_LEGEND', 'BUDGET_KING'], ['#b8bcc0', '#7d1f1f'], 'car', 'Lowered springs, loud exhaust, parked outside a chippy.'),
-      lot('rides', 7, 'Shopping Trolley with NOS', 'C', 28, 44, ['CHAOS', 'SPEED_DEMON'], ['#a8b0b8', '#2e7bd6'], 'trolley', 'Nought to sixty is technically possible. Stopping is not.'),
-      lot('rides', 8, 'Unicycle', 'CURSED', 7, 12, ['CHAOS', 'BUDGET_KING'], ['#8a8f94', '#c23b3b'], 'wheel', 'Half the wheels, none of the dignity.'),
-    ],
-  },
-  {
-    id: 'powers',
-    name: 'Superpowers & Perks',
-    short: 'POWERS',
-    blurb: 'One power, permanent, no refunds. Read the small print.',
-    items: [
-      lot('powers', 1, 'Time Freeze (10s)', 'S', 95, 90, ['STEALTH', 'TECH_HEAD'], ['#56b6d8', '#eaf6fb'], 'clock', 'Ten seconds. Long enough to win any argument, or leave it.'),
-      lot('powers', 2, 'Teleportation', 'S', 92, 94, ['SPEED_DEMON', 'STEALTH'], ['#7a5fd0', '#d9d2f5'], 'bolt', 'No more airports. No more "five minutes away".'),
-      lot('powers', 3, 'Mind Reading', 'A', 82, 75, ['STEALTH', 'CHAOS'], ['#c75f9a', '#f1dbe8'], 'eye', 'You will know exactly what they think of you. Good luck with that.'),
-      lot('powers', 4, 'Infinite Rizz', 'A', 74, 85, ['FLEX', 'UK_LEGEND'], ['#e0559b', '#f6c94a'], 'gem', 'Every text gets a reply. Every reply is a yes.'),
-      lot('powers', 5, 'Summon Unlimited Chicken Wings', 'B', 58, 50, ['BUDGET_KING', 'CHAOS'], ['#c9762a', '#f0d9a8'], 'box', 'Unlimited. Sauce not included. Napkins not included.'),
-      lot('powers', 6, 'Invisibility (Only When Nobody Looks)', 'C', 30, 55, ['STEALTH', 'CHAOS'], ['#9fb3bf', '#e6edf0'], 'eye', 'Works perfectly. Nobody has ever been able to confirm it.'),
-      lot('powers', 7, 'Lag Switch IRL', 'C', 36, 30, ['TECH_HEAD', 'CHAOS'], ['#5c7a3a', '#c8d64a'], 'chip', 'Everyone around you freezes for a second. So do you.'),
-      lot('powers', 8, 'Always Stubs Toe', 'CURSED', 4, 8, ['CHAOS'], ['#7a3b3b', '#d9a0a0'], 'shoe', 'It is a power in the sense that it is permanent.'),
-    ],
-  },
-  {
-    id: 'lairs',
-    name: 'Dream Mansions & Lairs',
-    short: 'LAIRS',
+  build({
+    id: 'estates', name: 'Dream Mansions & Estates', short: 'ESTATE', icon: 'house', palette: ['#b9502e', '#eadfc8'],
     blurb: 'Where the lineup sleeps. Square footage is a personality.',
-    items: [
-      lot('lairs', 1, 'Private Island Compound', 'S', 97, 96, ['BILLIONAIRE', 'STEALTH'], ['#2f9e8f', '#e9d9a6'], 'house', 'Its own runway, its own reef, its own postcode.'),
-      lot('lairs', 2, 'Glass Cliffside Penthouse', 'S', 89, 86, ['FLEX', 'BILLIONAIRE'], ['#8fc4d6', '#2b3238'], 'tower', 'Floor-to-ceiling glass. Do not own a football.'),
-      lot('lairs', 3, 'Underground Night-Bunker', 'A', 83, 70, ['STEALTH', 'TECH_HEAD'], ['#3b424a', '#d6a419'], 'shield', 'Forty metres down, a waterfall door, and no visitors ever.'),
-      lot('lairs', 4, 'The Creator House Classic', 'A', 77, 78, ['UK_LEGEND', 'NOSTALGIA'], ['#b9502e', '#eadfc8'], 'house', 'Six bedrooms, eleven cameras, one very tired neighbour.'),
-      lot('lairs', 5, 'Converted Haunted Castle', 'B', 63, 60, ['UK_LEGEND', 'CHAOS'], ['#6a6f7a', '#a58fd0'], 'tower', 'Draughty, listed, and the previous owner has not technically left.'),
-      lot('lairs', 6, 'Luxury Treehouse', 'B', 52, 48, ['STEALTH', 'BUDGET_KING'], ['#4f8a3c', '#8a5a30'], 'house', 'Underfloor heating, rope ladder, squirrels on the lease.'),
-      lot('lairs', 7, 'Inflatable Pool Tent', 'C', 24, 22, ['BUDGET_KING', 'CHAOS'], ['#3fa7d6', '#f08a3c'], 'box', 'Sleeps four until somebody opens a window.'),
-      lot('lairs', 8, 'Cardboard Box', 'CURSED', 6, 10, ['BUDGET_KING', 'STEALTH'], ['#a67c4a', '#d9b98a'], 'box', 'Open plan. Excellent recycling credentials.'),
+    lots: [
+      ['Private Caribbean Cay', 'S', 97, 96, ['BILLIONAIRE', 'STEALTH'], 'Necker Island (British Virgin Islands)', 'Its own reef, its own runway, its own postcode.'],
+      ['Cliffside Masterpiece', 'S', 91, 82, ['FLEX', 'NOSTALGIA'], 'Fallingwater', 'A house built over a waterfall. The damp is considered a feature.'],
+      ['Modern Glass Villa', 'A', 86, 88, ['FLEX', 'BILLIONAIRE'], 'Farnsworth House', 'Floor-to-ceiling glass. Do not own a football.'],
+      ['Fairytale Castle', 'A', 84, 92, ['NOSTALGIA', 'FLEX'], 'Neuschwanstein Castle', 'Turrets, a throne room, and a heating bill with its own turret.'],
+      ['Tokyo Penthouse', 'A', 78, 85, ['FLEX', 'TECH_HEAD'], 'Roppongi Hills Mori Tower', 'Fifty floors up. The lift has better manners than you do.'],
+      ['Swiss Alpine Chalet', 'A', 80, 74, ['STEALTH', 'NOSTALGIA'], 'Chalet', 'Log fire, cuckoo clock, neighbours who mind their own business.'],
+      ['Converted Lighthouse', 'B', 62, 55, ['STEALTH', 'UK_LEGEND'], 'Lighthouse', 'Round rooms, one very large lamp, no passing trade.'],
+      ['Brutalist Bunker', 'B', 58, 38, ['STEALTH', 'MUSCLE'], 'Habitat 67', 'Concrete. More concrete. A sleeper, if you squint.'],
+      ['Luxury Treehouse', 'C', 36, 50, ['STEALTH', 'BUDGET_KING'], 'Tree house', 'Underfloor heating, rope ladder, squirrels on the lease.'],
+      ['Garden Shed', 'CURSED', 6, 12, ['BUDGET_KING', 'UK_LEGEND'], 'Shed', 'Sleeps one, alongside a lawnmower and nine spiders.'],
     ],
-  },
-  {
-    id: 'squad',
-    name: 'VIP Bodyguards & Squad',
-    short: 'SQUAD',
-    blurb: 'Somebody has to stand behind you looking serious.',
-    items: [
-      lot('squad', 1, 'Prime Heavyweight Champ', 'S', 95, 93, ['MUSCLE', 'FLEX'], ['#b8201c', '#d6a419'], 'figure', 'Undefeated, unbothered, and standing right behind you.'),
-      lot('squad', 2, 'Ex-Special-Forces Tactical Unit', 'S', 91, 84, ['MUSCLE', 'STEALTH'], ['#3d4a38', '#9aa58a'], 'shield', 'You will never see them. That is the point.'),
-      lot('squad', 3, 'Kung Fu Grandmaster', 'A', 84, 66, ['MUSCLE', 'STEALTH'], ['#d0782a', '#f1e6cf'], 'figure', 'Seventy-one years old. Has not lost since before colour television.'),
-      lot('squad', 4, 'Viking Berserker', 'A', 80, 76, ['MUSCLE', 'CHAOS'], ['#8a5a30', '#c8ccd0'], 'figure', 'Excellent in a crisis. Is usually the crisis.'),
-      lot('squad', 5, 'Prime Boxer-YouTuber', 'A', 75, 89, ['UK_LEGEND', 'MUSCLE'], ['#c23b3b', '#f4f1e8'], 'figure', 'Sold out an arena, dropped a single, and still replied to the comments.'),
-      lot('squad', 6, 'Angry Goose Swarm', 'B', 57, 40, ['CHAOS', 'UK_LEGEND'], ['#e8e8e0', '#e08a2a'], 'wheel', 'Forty geese. No off switch. Canal-side veterans.'),
-      lot('squad', 7, 'Mall Security Guard', 'C', 26, 25, ['BUDGET_KING', 'MUSCLE'], ['#3b5c8a', '#d9d9d9'], 'shield', 'Has a torch, a lanyard, and a strongly worded whistle.'),
-      lot('squad', 8, 'Toddler on Sugar', 'CURSED', 12, 20, ['CHAOS', 'SPEED_DEMON'], ['#f08ab0', '#7fd0e8'], 'figure', 'Fast, sticky, and impossible to reason with.'),
+  }),
+  build({
+    id: 'rides', name: 'Hypercars & Exotic Rides', short: 'RIDES', icon: 'car', palette: ['#c9261e', '#15171a'],
+    blurb: 'What is parked outside says everything. Or nothing, if it is a unicycle.',
+    lots: [
+      ['Bugatti Chiron', 'S', 96, 95, ['SPEED_DEMON', 'BILLIONAIRE'], 'Bugatti Chiron', 'Sixteen cylinders, four turbos, and a service bill like a house deposit.'],
+      ['Koenigsegg Jesko', 'S', 94, 84, ['SPEED_DEMON', 'TECH_HEAD'], 'Koenigsegg Jesko', 'Built by a few dozen Swedes who think 300 miles an hour is a starting point.'],
+      ['McLaren F1', 'S', 93, 80, ['SPEED_DEMON', 'UK_LEGEND'], 'McLaren F1', 'Three seats, the driver in the middle, gold foil in the engine bay.'],
+      ['Nissan Skyline GT-R R34', 'A', 88, 70, ['SPEED_DEMON', 'NOSTALGIA'], 'Nissan Skyline GT-R', 'One poster on every bedroom wall since 1999.'],
+      ['Rolls-Royce Boat Tail', 'A', 85, 78, ['BILLIONAIRE', 'FLEX'], 'Rolls-Royce Boat Tail', 'The boot opens into a champagne picnic. Obviously.'],
+      ['G-Wagon 6x6', 'A', 74, 90, ['FLEX', 'MUSCLE'], 'Mercedes-Benz G-Class', 'Six wheels, zero subtlety, never once been off-road.'],
+      ['Original Mini', 'B', 60, 50, ['UK_LEGEND', 'NOSTALGIA'], 'Mini', 'Fits anywhere. Has been driven down a staircase on film.'],
+      ['Peel P50', 'C', 34, 58, ['BUDGET_KING', 'UK_LEGEND'], 'Peel P50', 'The smallest production car ever made. Reverse gear is you, lifting it.'],
+      ['Three-Wheeler', 'C', 30, 35, ['UK_LEGEND', 'CHAOS'], 'Reliant Robin', 'Corners enthusiastically. Sometimes all the way over.'],
+      ['Unicycle', 'CURSED', 7, 12, ['CHAOS', 'BUDGET_KING'], 'Unicycle', 'Half the wheels, none of the dignity.'],
     ],
-  },
-  {
-    id: 'drip',
-    name: 'Luxury & Drip',
-    short: 'DRIP',
+  }),
+  build({
+    id: 'icons', name: 'Internet & Pop Culture Icons', short: 'ICONS', icon: 'star', palette: ['#e0559b', '#f6c94a'],
+    blurb: 'The things the internet could not stop posting.',
+    lots: [
+      ['The Original Doge', 'S', 92, 96, ['CHAOS', 'NOSTALGIA'], 'Shiba Inu', 'Much lot. Very auction. Wow.'],
+      ['Rubik\'s Cube', 'S', 90, 72, ['NOSTALGIA', 'TECH_HEAD'], 'Rubik\'s Cube', 'Forty-three quintillion positions and you still peel the stickers off.'],
+      ['Original Game Boy', 'A', 86, 80, ['NOSTALGIA', 'TECH_HEAD'], 'Game Boy', 'Four shades of green and a battery life modern phones dream about.'],
+      ['Grumpy Cat', 'A', 80, 84, ['CHAOS', 'NOSTALGIA'], 'Grumpy Cat', 'Unimpressed by you, by this auction, and by the price so far.'],
+      ['Nokia 3310', 'A', 78, 66, ['NOSTALGIA', 'MUSCLE'], 'Nokia 3310', 'Battery lasts a fortnight. Has survived things you have not.'],
+      ['Tamagotchi', 'B', 60, 62, ['NOSTALGIA', 'CHAOS'], 'Tamagotchi', 'It needs feeding. It always needs feeding.'],
+      ['Rubber Duck', 'B', 55, 40, ['BUDGET_KING', 'CHAOS'], 'Rubber duck', 'Explain your problems to it. It has heard worse.'],
+      ['Lava Lamp', 'C', 38, 45, ['NOSTALGIA', 'FLEX'], 'Lava lamp', 'Takes an hour to warm up. So did the seventies.'],
+      ['Fidget Spinner', 'C', 24, 60, ['BUDGET_KING', 'SPEED_DEMON'], 'Fidget spinner', 'Peaked in one summer. Everyone remembers which one.'],
+      ['Stadium Air Horn', 'CURSED', 5, 30, ['CHAOS', 'BUDGET_KING'], 'Air horn', 'One note. For ninety minutes. Plus stoppage time.'],
+    ],
+  }),
+  build({
+    id: 'beasts', name: 'Apex Predators & Exotic Pets', short: 'BEASTS', icon: 'paw', palette: ['#4f8a3c', '#e8d9a8'],
+    blurb: 'Something has to guard the garden. Or just sit in it looking calm.',
+    lots: [
+      ['Snow Leopard', 'S', 95, 90, ['STEALTH', 'FLEX'], 'Snow leopard', 'You will never see it coming. Neither will the postman.'],
+      ['Peregrine Falcon', 'S', 91, 76, ['SPEED_DEMON', 'STEALTH'], 'Peregrine falcon', 'The fastest animal alive, in a dive. Bad news for pigeons.'],
+      ['Orca', 'A', 88, 86, ['MUSCLE', 'STEALTH'], 'Orca', 'Six tonnes, hunts in a team, needs a bigger pool than you have.'],
+      ['Honey Badger', 'A', 84, 62, ['CHAOS', 'MUSCLE'], 'Honey badger', 'Fights lions, eats cobras, has no opinion about any of it.'],
+      ['Komodo Dragon', 'A', 82, 80, ['MUSCLE', 'CHAOS'], 'Komodo dragon', 'Three metres of lizard with a patient attitude to lunch.'],
+      ['Capybara', 'B', 66, 92, ['CHAOS', 'BUDGET_KING'], 'Capybara', 'Friends with everybody. Does absolutely nothing. Adored.'],
+      ['Axolotl', 'B', 58, 70, ['STEALTH', 'NOSTALGIA'], 'Axolotl', 'Smiles constantly. Regrows limbs. Never grows up.'],
+      ['Llama', 'C', 40, 44, ['CHAOS', 'BUDGET_KING'], 'Llama', 'Will carry your bags. Will spit on your guests.'],
+      ['Goldfish', 'C', 22, 20, ['BUDGET_KING', 'NOSTALGIA'], 'Goldfish', 'Won at a funfair. Outlived the funfair.'],
+      ['Town-Centre Pigeon', 'CURSED', 8, 10, ['UK_LEGEND', 'BUDGET_KING'], 'Feral pigeon', 'One good foot and strong views on your chips.'],
+    ],
+  }),
+  build({
+    id: 'drip', name: 'Luxury Watches, Drip & Artifacts', short: 'DRIP', icon: 'gem', palette: ['#d6a419', '#1d1d1f'],
     blurb: 'The fit. The piece. The thing people screenshot.',
-    items: [
-      lot('drip', 1, 'Iced-Out Tourbillon Watch', 'S', 94, 92, ['FLEX', 'BILLIONAIRE'], ['#cfe6f2', '#d6a419'], 'ring', 'Tells the time. Mostly tells people you can afford it.'),
-      lot('drip', 2, '1-of-1 Couture Archive', 'S', 88, 74, ['FLEX', 'STEALTH'], ['#1d1d1f', '#c9b48a'], 'gem', 'Never worn, never photographed, never coming up again.'),
-      lot('drip', 3, 'Golden Squad Chain', 'A', 81, 83, ['UK_LEGEND', 'FLEX'], ['#d6a419', '#8a6a10'], 'ring', 'Heavy enough to count as a gym membership.'),
-      lot('drip', 4, 'Diamond Grillz', 'A', 73, 80, ['FLEX', 'CHAOS'], ['#dff1f7', '#9ad0e0'], 'gem', 'Every smile is a jewellery advert. Soup is now difficult.'),
-      lot('drip', 5, 'Limited Hyper-Sneakers', 'B', 64, 78, ['SPEED_DEMON', 'FLEX'], ['#e8442e', '#f4f1e8'], 'shoe', 'Queued for nine hours. Too precious to walk in.'),
-      lot('drip', 6, 'Thrift Store Tracksuit', 'C', 40, 28, ['UK_LEGEND', 'BUDGET_KING'], ['#2e4a8a', '#e8e8e8'], 'box', 'Three stripes, two owners, one mystery stain.'),
-      lot('drip', 7, 'Foam Clogs in Sport Mode', 'C', 31, 36, ['SPEED_DEMON', 'BUDGET_KING'], ['#7ac74f', '#f4e04d'], 'shoe', 'Strap down means business.'),
-      lot('drip', 8, 'Fake Designer Belt', 'CURSED', 8, 30, ['BUDGET_KING', 'FLEX'], ['#5a3a1e', '#c9a227'], 'ring', 'The logo is spelled almost correctly.'),
+    lots: [
+      ['Omega Speedmaster Moonwatch', 'S', 95, 92, ['FLEX', 'BILLIONAIRE'], 'Omega Speedmaster', 'It has been to the Moon. You will wear it to the shops.'],
+      ['Rolex Daytona', 'S', 90, 94, ['FLEX', 'SPEED_DEMON'], 'Rolex Daytona', 'Times a lap to the eighth of a second. You will use it for eggs.'],
+      ['Fabergé Egg', 'A', 88, 78, ['BILLIONAIRE', 'NOSTALGIA'], 'Fabergé egg', 'An Easter present from a tsar. Do not make an omelette.'],
+      ['The Hope Diamond', 'A', 86, 85, ['BILLIONAIRE', 'STEALTH'], 'Hope Diamond', 'Forty-five carats, deep blue, allegedly cursed. Allegedly.'],
+      ['St Edward\'s Crown', 'A', 82, 80, ['UK_LEGEND', 'BILLIONAIRE'], 'St Edward\'s Crown', 'Two kilos of gold. Worn for about an hour per reign.'],
+      ['Deadstock Air Force 1s', 'B', 68, 88, ['FLEX', 'SPEED_DEMON'], 'Air Force 1 (shoe)', 'Queued nine hours. Too precious to walk in.'],
+      ['Savile Row Suit', 'B', 64, 52, ['UK_LEGEND', 'FLEX'], 'Savile Row', 'Fifty hours of hand stitching. You will still spill something on it.'],
+      ['Bowler Hat', 'C', 36, 40, ['UK_LEGEND', 'NOSTALGIA'], 'Bowler hat', 'Very City of London, 1955.'],
+      ['Wooden Clogs', 'C', 28, 55, ['BUDGET_KING', 'CHAOS'], 'Clog', 'No strap, no sport mode. Everyone hears you coming.'],
+      ['Bum Bag', 'CURSED', 9, 25, ['BUDGET_KING', 'NOSTALGIA'], 'Fanny pack', 'Holds a phone, some keys and your remaining pride.'],
     ],
-  },
-  {
-    id: 'tech',
-    name: 'Tech & Gadgets',
-    short: 'TECH',
-    blurb: 'Hardware for the lineup. Some of it even turns on.',
-    items: [
-      lot('tech', 1, 'Quantum Supercomputer', 'S', 96, 88, ['TECH_HEAD', 'BILLIONAIRE'], ['#3fb8c9', '#d6a419'], 'chip', 'It has already calculated what you will bid. Go on, surprise it.'),
-      lot('tech', 2, 'Jetpack Mk.IV', 'S', 90, 95, ['SPEED_DEMON', 'TECH_HEAD'], ['#c9ccd1', '#e8642e'], 'rocket', 'Marks one to three are why there is a mark four.'),
-      lot('tech', 3, 'Neural VR Rig', 'A', 79, 77, ['TECH_HEAD', 'STEALTH'], ['#2b2f36', '#56b6d8'], 'eye', 'Plugs straight in. Please read the terms. Nobody reads the terms.'),
-      lot('tech', 4, 'AI Butler Drone', 'A', 72, 68, ['TECH_HEAD', 'FLEX'], ['#e8e8e8', '#3a9a8c'], 'rocket', 'Brings the tea, files the taxes, judges you quietly.'),
-      lot('tech', 5, 'Indestructible Brick Phone', 'B', 65, 52, ['NOSTALGIA', 'MUSCLE'], ['#2e4a6a', '#9ab0c4'], 'phone', 'Battery lasts a fortnight. Has survived things you have not.'),
-      lot('tech', 6, 'Dial-Up Router', 'C', 27, 18, ['NOSTALGIA', 'BUDGET_KING'], ['#c8c2b0', '#5a8a3c'], 'chip', 'Sings the song of its people every time you connect.'),
-      lot('tech', 7, 'Broken Gamepad (Stick Drift)', 'C', 22, 26, ['NOSTALGIA', 'CHAOS'], ['#2a2a2e', '#4fb04f'], 'phone', 'Always walking slightly left. So will your lineup.'),
-      lot('tech', 8, 'Potato Battery', 'CURSED', 10, 14, ['BUDGET_KING', 'TECH_HEAD'], ['#a8843c', '#c9c9c9'], 'brick', 'Zero point eight volts of pure ambition.'),
+  }),
+  build({
+    id: 'guards', name: 'Elite Bodyguards & Warriors', short: 'GUARDS', icon: 'shield', palette: ['#3d4a38', '#d6a419'],
+    blurb: 'Somebody has to stand behind you looking serious.',
+    lots: [
+      ['Samurai', 'S', 94, 92, ['MUSCLE', 'STEALTH'], 'Samurai', 'Two swords, a strict code, and no patience for late bidders.'],
+      ['Spartan Hoplite', 'S', 92, 88, ['MUSCLE', 'NOSTALGIA'], 'Hoplite', 'Comes back with his shield or on it.'],
+      ['Gurkha', 'A', 88, 64, ['MUSCLE', 'STEALTH'], 'Gurkha', 'Better to die than be a coward. The room should bid accordingly.'],
+      ['Viking Berserker', 'A', 80, 82, ['MUSCLE', 'CHAOS'], 'Vikings', 'Excellent in a crisis. Is usually the crisis.'],
+      ['Ninja', 'A', 78, 90, ['STEALTH', 'SPEED_DEMON'], 'Ninja', 'You have probably already bought one. You would not know.'],
+      ['Knight in Plate Armour', 'B', 70, 75, ['MUSCLE', 'UK_LEGEND'], 'Knight', 'Unstoppable on a horse. Needs a hand with stairs.'],
+      ['Sumo Wrestler', 'B', 64, 58, ['MUSCLE', 'FLEX'], 'Sumo', 'Nobody gets past. Nobody gets round, either.'],
+      ['King\'s Guard', 'C', 40, 66, ['UK_LEGEND', 'NOSTALGIA'], 'King\'s Guard', 'Will not move, will not smile, will not actually help.'],
+      ['Mall Security Guard', 'C', 26, 25, ['BUDGET_KING', 'MUSCLE'], 'Security guard', 'Has a torch, a lanyard and a strongly worded whistle.'],
+      ['Scarecrow', 'CURSED', 6, 14, ['BUDGET_KING', 'STEALTH'], 'Scarecrow', 'Outstanding against crows. Limited against everything else.'],
     ],
-  },
+  }),
+  build({
+    id: 'powers', name: 'Superpowers & Reality Glitches', short: 'POWERS', icon: 'bolt', palette: ['#7a5fd0', '#d9d2f5'],
+    blurb: 'One power, permanent, no refunds. Read the small print.',
+    lots: [
+      ['Time Freeze (10s)', 'S', 95, 90, ['STEALTH', 'TECH_HEAD'], 'Hourglass', 'Ten seconds. Long enough to win any argument, or leave it.'],
+      ['Teleportation', 'S', 92, 94, ['SPEED_DEMON', 'STEALTH'], 'Wormhole', 'No more airports. No more "five minutes away".'],
+      ['Flight', 'A', 86, 92, ['SPEED_DEMON', 'FLEX'], 'Wingsuit flying', 'Cold, loud, full of insects. Still flight.'],
+      ['Mind Reading', 'A', 82, 75, ['STEALTH', 'CHAOS'], 'Human brain', 'You will know exactly what they think of you. Good luck with that.'],
+      ['Super Strength', 'A', 78, 80, ['MUSCLE', 'FLEX'], 'Farnese Atlas', 'Carry the whole sky. Or all the shopping in one trip.'],
+      ['Infinite Rizz', 'B', 68, 85, ['FLEX', 'UK_LEGEND'], 'Peafowl', 'Every text gets a reply. Every reply is a yes.'],
+      ['Talk to Animals', 'B', 60, 55, ['CHAOS', 'NOSTALGIA'], 'Parrot', 'They mostly want to talk about food. So do you.'],
+      ['Lag Switch IRL', 'C', 34, 30, ['TECH_HEAD', 'CHAOS'], 'Sloth', 'Everyone around you slows right down. So do you.'],
+      ['Invisibility (Only When Nobody Looks)', 'C', 30, 55, ['STEALTH', 'CHAOS'], 'Chameleon', 'Works perfectly. Nobody has ever been able to confirm it.'],
+      ['Always Steps on a Brick', 'CURSED', 4, 8, ['CHAOS'], 'Lego', 'It is a power in the sense that it is permanent.'],
+    ],
+  }),
+  build({
+    id: 'tech', name: 'Next-Gen Tech & Military Hardware', short: 'TECH', icon: 'chip', palette: ['#3fb8c9', '#22262b'],
+    blurb: 'Hardware for the lineup. Some of it is even legal to own.',
+    lots: [
+      ['Quantum Computer', 'S', 96, 86, ['TECH_HEAD', 'BILLIONAIRE'], 'Quantum computing', 'It has already calculated what you will bid. Go on, surprise it.'],
+      ['F-22 Raptor', 'S', 93, 94, ['SPEED_DEMON', 'MUSCLE'], 'Lockheed Martin F-22 Raptor', 'Invisible to radar. Very visible on the driveway.'],
+      ['Jetpack', 'A', 84, 92, ['SPEED_DEMON', 'TECH_HEAD'], 'Jet pack', 'Thirty seconds of flight and a lifetime of telling people about it.'],
+      ['Robot Pack Mule', 'A', 80, 72, ['TECH_HEAD', 'CHAOS'], 'BigDog', 'Carries 150 kilos over ice. Sounds like an angry lawnmower.'],
+      ['Main Battle Tank', 'A', 78, 80, ['MUSCLE', 'UK_LEGEND'], 'Challenger 2', 'Sixty-two tonnes. Has a kettle built in. This is true.'],
+      ['Enigma Machine', 'B', 70, 60, ['STEALTH', 'NOSTALGIA'], 'Enigma machine', 'Unbreakable, they said. Then a few mathematicians got involved.'],
+      ['Night-Vision Goggles', 'B', 62, 58, ['STEALTH', 'TECH_HEAD'], 'Night-vision device', 'Everything is green. You are now a nature documentary.'],
+      ['Segway', 'C', 35, 50, ['TECH_HEAD', 'BUDGET_KING'], 'Segway', 'The future of transport, in 2001.'],
+      ['Dial-Up Modem', 'C', 24, 15, ['NOSTALGIA', 'BUDGET_KING'], 'Modem', 'Sings the song of its people every time you connect.'],
+      ['Fruit Battery', 'CURSED', 9, 14, ['BUDGET_KING', 'TECH_HEAD'], 'Lemon battery', 'Zero point nine volts of pure ambition.'],
+    ],
+  }),
+  build({
+    id: 'escape', name: 'Private Jets, Yachts & Bunkers', short: 'JETS', icon: 'plane', palette: ['#8fc4d6', '#2b3238'],
+    blurb: 'How you leave, and where you hide when you get there.',
+    lots: [
+      ['Gulfstream G650', 'S', 95, 93, ['BILLIONAIRE', 'SPEED_DEMON'], 'Gulfstream G650', 'London to Singapore non-stop, in slippers.'],
+      ['Concorde', 'S', 92, 88, ['SPEED_DEMON', 'NOSTALGIA'], 'Concorde', 'Twice the speed of sound. You land before you took off.'],
+      ['Superyacht', 'A', 88, 97, ['BILLIONAIRE', 'FLEX'], 'Superyacht', 'It has a helipad. The helipad has a smaller boat.'],
+      ['Private Submersible', 'A', 82, 68, ['STEALTH', 'TECH_HEAD'], 'Submersible', 'Nobody can reach you. Nobody. That is the selling point.'],
+      ['Helicopter', 'A', 76, 80, ['SPEED_DEMON', 'FLEX'], 'Helicopter', 'Skips the traffic. Annoys an entire postcode.'],
+      ['Doomsday Bunker', 'B', 68, 52, ['STEALTH', 'MUSCLE'], 'Bunker', 'Two metres of concrete and forty years of tinned peaches.'],
+      ['Airship', 'B', 60, 62, ['NOSTALGIA', 'FLEX'], 'Zeppelin', 'Stately, silent, slow. Avoid sparks.'],
+      ['Narrowboat', 'C', 42, 30, ['UK_LEGEND', 'BUDGET_KING'], 'Narrowboat', 'Four miles an hour and a kettle that is always on.'],
+      ['Pedalo', 'C', 20, 22, ['BUDGET_KING', 'CHAOS'], 'Pedalo', 'You are the engine. The engine is tired.'],
+      ['Inflatable Dinghy', 'CURSED', 7, 10, ['BUDGET_KING', 'CHAOS'], 'Inflatable boat', 'Slow puncture included at no extra cost.'],
+    ],
+  }),
+  build({
+    id: 'feast', name: 'Michelin Feasts & Unlimited Food Pass', short: 'FEAST', icon: 'plate', palette: ['#c9762a', '#f0d9a8'],
+    blurb: 'One thing to eat, for ever. Choose like you mean it.',
+    lots: [
+      ['Omakase Sushi for Life', 'S', 94, 90, ['FLEX', 'STEALTH'], 'Sushi', 'The chef decides. The chef is always right.'],
+      ['A5 Wagyu Supply', 'S', 92, 94, ['FLEX', 'BILLIONAIRE'], 'Wagyu', 'The cows get massages. You get the bill.'],
+      ['Neapolitan Pizza Pass', 'A', 86, 88, ['NOSTALGIA', 'CHAOS'], 'Neapolitan pizza', 'Ninety seconds in the oven. Gone in sixty.'],
+      ['White Truffle Supply', 'A', 84, 70, ['BILLIONAIRE', 'STEALTH'], 'Truffle', 'Found by a dog, shaved by a waiter, priced by a comedian.'],
+      ['Full English, Every Morning', 'A', 74, 66, ['UK_LEGEND', 'NOSTALGIA'], 'Full breakfast', 'Beans touching the egg. That is the law.'],
+      ['Fish and Chips Friday', 'B', 66, 60, ['UK_LEGEND', 'BUDGET_KING'], 'Fish and chips', 'Salt, vinegar, and a wooden fork that does nothing.'],
+      ['Unlimited Chicken Wings', 'B', 62, 80, ['CHAOS', 'BUDGET_KING'], 'Buffalo wing', 'Unlimited. Napkins not included.'],
+      ['Beluga Caviar on Tap', 'B', 58, 86, ['BILLIONAIRE', 'FLEX'], 'Caviar', 'Tastes like the sea charging you rent.'],
+      ['Instant Noodles', 'C', 30, 28, ['BUDGET_KING', 'NOSTALGIA'], 'Instant noodles', 'Three minutes. Student years, in a bowl.'],
+      ['Fermented Herring', 'CURSED', 3, 12, ['CHAOS'], 'Surströmming', 'Open it outdoors. Further outdoors than that.'],
+    ],
+  }),
+  build({
+    id: 'props', name: 'Iconic Movie Props & Vehicles', short: 'PROPS', icon: 'film', palette: ['#2f6fd0', '#e8e8e8'],
+    blurb: 'Straight off the set. Mileage unknown, some of it through time.',
+    lots: [
+      ['DeLorean Time Machine', 'S', 96, 95, ['NOSTALGIA', 'SPEED_DEMON'], 'DeLorean time machine', 'Needs 1.21 gigawatts and a long, straight road.'],
+      ['Submarine Spy Car', 'S', 93, 92, ['STEALTH', 'TECH_HEAD'], 'Wet Nellie', 'Drives off the pier, keeps going. Wipers optional.'],
+      ['Powered Armour Suit', 'A', 88, 96, ['TECH_HEAD', 'FLEX'], 'Powered exoskeleton', 'Genius, billionaire and playboy sold separately.'],
+      ['Lightsaber', 'A', 86, 94, ['TECH_HEAD', 'NOSTALGIA'], 'Lightsaber', 'An elegant weapon. Terrible for slicing bread.'],
+      ['Spy\'s Aston Martin DB5', 'A', 84, 82, ['UK_LEGEND', 'STEALTH'], 'Aston Martin DB5', 'Ejector seat fitted. Passengers are advised to be polite.'],
+      ['The One Ring', 'B', 72, 84, ['STEALTH', 'NOSTALGIA'], 'One Ring', 'Makes you invisible. Minor side effects.'],
+      ['Ruby Slippers', 'B', 66, 60, ['NOSTALGIA', 'FLEX'], 'Ruby slippers', 'Click three times. Results may vary outside Kansas.'],
+      ['Love Bug Beetle', 'B', 62, 74, ['NOSTALGIA', 'CHAOS'], 'Herbie', 'Number 53. Drives itself. Has opinions about your parking.'],
+      ['Clapperboard', 'C', 35, 30, ['NOSTALGIA', 'BUDGET_KING'], 'Clapperboard', 'Scene one, take forty. Still no bids.'],
+      ['Stale Cinema Popcorn', 'CURSED', 8, 20, ['BUDGET_KING', 'CHAOS'], 'Popcorn', 'Swept up after the late showing. Lightly buttered, heavily trodden.'],
+    ],
+  }),
+  build({
+    id: 'wonders', name: 'World Wonders & Secret Locations', short: 'WONDERS', icon: 'peak', palette: ['#2f9e8f', '#e9d9a6'],
+    blurb: 'The deeds to somewhere extraordinary. Or to a roundabout.',
+    lots: [
+      ['Great Pyramid of Giza', 'S', 96, 95, ['BILLIONAIRE', 'NOSTALGIA'], 'Great Pyramid of Giza', 'Four and a half thousand years old. One careful owner.'],
+      ['Machu Picchu', 'S', 95, 92, ['STEALTH', 'NOSTALGIA'], 'Machu Picchu', 'A city in the clouds that nobody told the conquistadors about.'],
+      ['Petra', 'A', 86, 80, ['STEALTH', 'NOSTALGIA'], 'Petra', 'A whole city carved into a cliff. The front door alone is forty metres.'],
+      ['Everest Summit', 'A', 84, 88, ['MUSCLE', 'FLEX'], 'Mount Everest', 'The view is unbeatable. So is the queue.'],
+      ['Area 51', 'A', 82, 90, ['STEALTH', 'TECH_HEAD'], 'Area 51', 'We cannot confirm what is inside. We cannot confirm this lot exists.'],
+      ['Stonehenge', 'A', 78, 84, ['UK_LEGEND', 'NOSTALGIA'], 'Stonehenge', 'Nobody knows what it is for. Planning permission was simpler then.'],
+      ['Arctic Seed Vault', 'B', 70, 48, ['STEALTH', 'TECH_HEAD'], 'Svalbard Global Seed Vault', 'A million seed samples inside a frozen mountain. A sleeper for the end of the world.'],
+      ['Loch Ness', 'B', 60, 72, ['UK_LEGEND', 'CHAOS'], 'Loch Ness', 'Monster not guaranteed. Midges are.'],
+      ['Motorway Services', 'C', 22, 15, ['UK_LEGEND', 'BUDGET_KING'], 'Motorway service area', 'A nine-pound sandwich and a massage chair nobody has ever used.'],
+      ['A Roundabout', 'CURSED', 6, 8, ['UK_LEGEND', 'CHAOS'], 'Roundabout', 'You now own a roundabout. Give way to the right.'],
+    ],
+  }),
+  build({
+    id: 'troll', name: 'Cursed Bargains & Troll Lots', short: 'TROLL', icon: 'cone', palette: ['#e8642e', '#f4e04d'],
+    blurb: 'Mostly rubbish. Mostly. In this round the hype lamps lie.',
+    lots: [
+      ['One Red Paperclip', 'S', 90, 20, ['BUDGET_KING', 'CHAOS'], 'Paper clip', 'Somebody once traded one of these, fourteen swaps later, for a house.'],
+      ['Tulip Mania Bulb', 'S', 86, 30, ['BILLIONAIRE', 'NOSTALGIA'], 'Tulip mania', 'In 1637 one bulb cost more than a canal house. Timing is everything.'],
+      ['Pet Rock', 'A', 72, 35, ['NOSTALGIA', 'BUDGET_KING'], 'Pet Rock', 'Made its inventor a millionaire. House-trained.'],
+      ['Garden Gnome', 'B', 55, 40, ['UK_LEGEND', 'CHAOS'], 'Garden gnome', 'Has seen everything that happens on your lawn. Says nothing.'],
+      ['Rubber Chicken', 'B', 50, 45, ['CHAOS', 'BUDGET_KING'], 'Rubber chicken', 'Comedy gold since the 1800s. Squeak sold separately.'],
+      ['Traffic Cone', 'C', 30, 25, ['UK_LEGEND', 'CHAOS'], 'Traffic cone', 'Technically council property. Traditionally worn by statues.'],
+      ['Shopping Trolley', 'C', 26, 30, ['BUDGET_KING', 'SPEED_DEMON'], 'Shopping cart', 'One wheel has its own ideas.'],
+      ['Portable Toilet', 'C', 18, 50, ['STEALTH', 'BUDGET_KING'], 'Portable toilet', 'Festival used. Day four.'],
+      ['Single Sock', 'CURSED', 5, 10, ['BUDGET_KING'], 'Sock', 'Its partner left years ago. No forwarding address.'],
+      ['Banana Peel', 'CURSED', 3, 60, ['CHAOS', 'SPEED_DEMON'], 'Banana peel', 'Hugely hyped by people who want to watch you slip.'],
+    ],
+  }),
 ]);
 
-// The eighth category is never drafted as a round. Its lots arrive sealed, mid-show.
-export const MYSTERY_CATEGORY = Object.freeze({
-  id: 'vault',
-  name: 'Mystery Vault Crates',
-  short: 'CRATE',
+// The fourteenth category is never drafted as a round. Its lots arrive sealed, mid-show,
+// and the photograph is only shown once the winner opens the crate.
+export const MYSTERY_CATEGORY = build({
+  id: 'vault', name: 'Mystery Vault Crates', short: 'CRATE', icon: 'crate', palette: ['#6b4a26', '#d6a419'],
   blurb: 'Sold blind. A silhouette, one clue, and your nerve.',
-  items: [
-    lot('vault', 1, 'Secret Billionaire Inheritance', 'S', 100, 50, ['BILLIONAIRE', 'FLEX'], ['#d6a419', '#f4f1e8'], 'gem', 'A great-uncle you never met has left you everything.'),
-    lot('vault', 2, 'Deed to a Grand Prix Team', 'S', 92, 50, ['SPEED_DEMON', 'BILLIONAIRE'], ['#c9261e', '#e8e8e8'], 'car', 'Two cars, a wind tunnel, and four hundred staff who now work for you.'),
-    lot('vault', 3, 'Lost Platinum Master Tape', 'A', 85, 50, ['NOSTALGIA', 'UK_LEGEND'], ['#c9ccd1', '#2b2f36'], 'ring', 'The album that never came out. It is very, very good.'),
-    lot('vault', 4, 'Lifetime Front-Row Pass', 'B', 62, 50, ['FLEX', 'UK_LEGEND'], ['#b32020', '#d6a419'], 'crown', 'Every final, every premiere, every fight. Forever.'),
-    lot('vault', 5, 'Haunted Karaoke Machine', 'C', 20, 50, ['CHAOS', 'NOSTALGIA'], ['#7a5fd0', '#39b36b'], 'phone', 'It only plays one song, and it starts by itself at 3 a.m.'),
-    lot('vault', 6, 'Box of 400 Left Shoes', 'CURSED', 8, 50, ['BUDGET_KING', 'CHAOS'], ['#8a5a30', '#c8c2b0'], 'shoe', 'Four hundred. All left. All size eleven.'),
-    lot('vault', 7, 'A Literal Brick', 'CURSED', 5, 50, ['BUDGET_KING', 'MUSCLE'], ['#a8482e', '#7a3420'], 'brick', 'It is a brick. We did warn you.'),
-    lot('vault', 8, 'Cursed Tax Audit', 'CURSED', 2, 50, ['CHAOS'], ['#3b2a4a', '#6fae4f'], 'box', 'Seven years of receipts. They would like to see all of them.'),
+  lots: [
+    ['Secret Billionaire Inheritance', 'S', 100, 50, ['BILLIONAIRE', 'FLEX'], 'Gold bar', 'A great-uncle you never met has left you everything.'],
+    ['Deed to a Grand Prix Team', 'S', 92, 50, ['SPEED_DEMON', 'BILLIONAIRE'], 'Formula One', 'Two cars, a wind tunnel, and four hundred staff who now work for you.'],
+    ['Lost Master Tape', 'A', 85, 50, ['NOSTALGIA', 'UK_LEGEND'], 'Reel-to-reel audio tape recording', 'The album that never came out. It is very, very good.'],
+    ['Buried Roman Hoard', 'A', 84, 50, ['BILLIONAIRE', 'UK_LEGEND'], 'Hoxne Hoard', 'Fifteen thousand coins, found by a man looking for a lost hammer.'],
+    ['Lifetime Front-Row Pass', 'B', 62, 50, ['FLEX', 'UK_LEGEND'], 'Wembley Stadium', 'Every final, every concert, every fight. For ever.'],
+    ['Vintage Jukebox', 'B', 58, 50, ['NOSTALGIA', 'CHAOS'], 'Jukebox', 'Two hundred singles and a strong preference for one of them.'],
+    ['Haunted Karaoke Machine', 'C', 20, 50, ['CHAOS', 'NOSTALGIA'], 'Karaoke', 'It plays one song, and it starts by itself at 3 a.m.'],
+    ['Box of 400 Left Shoes', 'CURSED', 8, 50, ['BUDGET_KING', 'CHAOS'], 'Shoe', 'Four hundred. All left. All size eleven.'],
+    ['A Literal Brick', 'CURSED', 5, 50, ['BUDGET_KING', 'MUSCLE'], 'Brick', 'It is a brick. We did warn you.'],
+    ['Cursed Tax Audit', 'CURSED', 2, 50, ['CHAOS'], 'Filing cabinet', 'Seven years of receipts. They would like to see all of them.'],
   ],
 });
 
@@ -191,6 +292,8 @@ export const PENALTY_DUDS = Object.freeze([
   { name: 'Traffic Cone (Borrowed)', line: 'Technically council property.' },
 ]);
 
+const DUD_PALETTE = Object.freeze(['#6b6f74', '#3a3d41']);
+
 export function makeDud(index, categoryId) {
   const d = PENALTY_DUDS[index % PENALTY_DUDS.length];
   return Object.freeze({
@@ -201,8 +304,9 @@ export function makeDud(index, categoryId) {
     trueValue: 0,
     baseAppeal: 0,
     synergyTags: Object.freeze([]),
-    colorPalette: Object.freeze(['#6b6f74', '#3a3d41']),
-    proceduralIconType: 'box',
+    colorPalette: DUD_PALETTE,
+    proceduralIconType: 'dud',
+    wikiQuery: null,
     commentaryLine: d.line,
     dud: true,
   });
@@ -210,6 +314,15 @@ export function makeDud(index, categoryId) {
 
 export function allItems() {
   return [...CATEGORIES.flatMap((c) => c.items), ...MYSTERY_CATEGORY.items];
+}
+
+const BY_ID = new Map(allItems().map((it) => [it.id, it]));
+
+// Resolves an id from the wire, including penalty duds ("dud-<category>-<index>").
+export function itemById(id) {
+  if (BY_ID.has(id)) return BY_ID.get(id);
+  const m = /^dud-(.+)-(\d+)$/.exec(String(id));
+  return m ? makeDud(Number(m[2]), m[1]) : null;
 }
 
 export function categoryById(id) {

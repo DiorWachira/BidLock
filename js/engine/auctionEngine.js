@@ -1,8 +1,13 @@
-// BIDLOCK — auction engine. Pure rules, no DOM, no audio, no rendering.
+// BIDLOCK 2.0 — auction engine. Pure rules, no DOM, no audio, no rendering.
 // Drive it with update(dt) and listen with on(event, fn). Deterministic for a given seed.
+//
+// One engine runs the match. In a multiplayer room that is the host's engine; every
+// other player holds a mirror, rebuilt from the host's snapshots with hydrate(), which
+// answers the same questions (max bid, who can steal what) but never advances the game.
 
-import { CATEGORIES, MYSTERY_CATEGORY, CRATE_CLUES, SYNERGY_RULE, makeDud } from '../data/categories.js';
+import { CATEGORIES, MYSTERY_CATEGORY, CRATE_CLUES, SYNERGY_RULE, makeDud, itemById, categoryById } from '../data/categories.js';
 import { PERSONAS, AIBidder, MOOD } from './aiBidders.js';
+import { OracleSteal, TriviaBank } from './triviaSteal.js';
 
 export const PHASE = Object.freeze({
   IDLE: 'IDLE',
@@ -11,6 +16,7 @@ export const PHASE = Object.freeze({
   BIDDING: 'BIDDING',
   SOLD: 'SOLD',
   REVEAL: 'REVEAL',
+  ORACLE: 'ORACLE',
   VAULT: 'VAULT',
   HEIST: 'HEIST',
   HEIST_DONE: 'HEIST_DONE',
@@ -18,15 +24,16 @@ export const PHASE = Object.freeze({
 });
 
 export const RULES = Object.freeze({
-  contenders: 4,
+  minContenders: 2,
+  maxContenders: 6,
   categoriesPerMatch: 6,
-  lotsPerCategory: 4,
+  marathonCategories: 8,
   mysteryLots: 2,
   shotClock: 5.0,
   vaultCost: 2,
   vaultTime: 10,
   heistTime: 10,
-  heistPremium: 1, // a steal costs what the owner paid, plus this
+  heistPremium: 1, // a heist costs what the owner paid, plus this
   categoryIntroTime: 3.4,
   lotIntroTime: 2.0,
   mysteryIntroTime: 3.0,
@@ -36,7 +43,7 @@ export const RULES = Object.freeze({
   revealAt: 2.3, // seconds left in REVEAL when the crate bursts
 });
 
-export const HUMAN_ID = 0;
+export const HUMAN_ID = 0; // the solo player's seat, and the host's seat in a room
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -62,6 +69,11 @@ function pick(list, rng) {
   return list[Math.floor(rng() * list.length)];
 }
 
+// Solo default: you against the three house rivals.
+export function soloSeats(name = 'YOU') {
+  return [{ name, kind: 'human' }, ...PERSONAS.map((p) => ({ name: p.name, kind: 'ai', persona: p.key }))];
+}
+
 export class AuctionEngine {
   constructor() {
     this.listeners = new Map();
@@ -80,10 +92,16 @@ export class AuctionEngine {
     this.callStage = 0;
     this.active = new Set();
     this.passed = new Set();
+    this.done = new Set();
     this.history = [];
-    this.options = { budget: 20, allIn: false, seed: 1 };
+    this.options = { budget: 20, allIn: false, seed: 1, marathon: false };
     this.results = null;
     this.rng = mulberry32(1);
+    this.localId = HUMAN_ID;
+    this.mirror = false;
+    this.revealed = false;
+    this.trivia = new TriviaBank(this.rng);
+    this.oracle = new OracleSteal(this);
   }
 
   // ---------- events ----------
@@ -97,40 +115,53 @@ export class AuctionEngine {
     const set = this.listeners.get(type);
     if (set) for (const fn of [...set]) fn(data);
     const any = this.listeners.get('*');
-    if (any) for (const fn of [...any]) fn({ type, ...data });
+    if (any) for (const fn of [...any]) fn(type, data);
   }
 
   // ---------- setup ----------
-  startMatch({ budget = 20, allIn = false, seed = (Date.now() & 0x7fffffff), humanName = 'YOU' } = {}) {
-    this.options = { budget, allIn, seed };
+  // seats: [{ name, kind: 'human' | 'ai', persona?: key }], two to six of them.
+  startMatch({ budget = 20, allIn = false, marathon = false, seed = (Date.now() & 0x7fffffff), seats = null, localId = HUMAN_ID, oracleChance = null, oracleSeat = null, trivia = null } = {}) {
+    const list = (seats && seats.length ? seats : soloSeats()).slice(0, RULES.maxContenders);
+    if (list.length < RULES.minContenders) throw new Error('A match needs at least two contenders.');
+    this.options = { budget, allIn, marathon, seed, oracleChance, oracleSeat };
     this.rng = mulberry32(seed);
     const rng = this.rng;
+    this.mirror = false;
+    this.localId = localId;
     this.results = null;
     this.sched = [];
+    this.done = new Set();
     this.dudCount = Math.floor(rng() * 8);
+    this.trivia = trivia || new TriviaBank(rng);
+    this.oracle.reset();
 
-    this.contenders = [
-      this._makeContender(HUMAN_ID, humanName, true, budget, allIn, null),
-      ...PERSONAS.map((p, i) => this._makeContender(i + 1, p.name, false, budget, p.allIn, p)),
-    ];
+    this.contenders = list.map((s, id) => {
+      const persona = s.kind === 'ai' ? PERSONAS.find((p) => p.key === s.persona) || PERSONAS[id % PERSONAS.length] : null;
+      return this._makeContender(id, s.name || (persona ? persona.name : `PLAYER ${id + 1}`), !persona, budget, persona ? persona.allIn : allIn, persona);
+    });
+    const n = this.contenders.length;
 
-    this.categories = shuffle(CATEGORIES, rng).slice(0, RULES.categoriesPerMatch);
+    const catCount = marathon ? RULES.marathonCategories : RULES.categoriesPerMatch;
+    this.categories = shuffle(CATEGORIES, rng).slice(0, catCount);
 
-    // Four lots per category: always one headline lot and one stinker. The stinker always
-    // comes last, so a round is musical chairs: three real lots, four contenders, and
-    // whoever never commits is left holding the booby prize for $1.
+    // One lot per contender in every round: always a headline lot, and (with three or
+    // more at the table) a stinker. The weakest lot always comes last, so a round is
+    // musical chairs: whoever never commits is left holding the booby prize for $1.
     const catLots = this.categories.map((cat) => {
       const top = cat.items.filter((it) => it.tier === 'S');
       const low = cat.items.filter((it) => it.tier === 'C' || it.tier === 'CURSED');
-      const chosen = [pick(top, rng), pick(low, rng)];
+      const chosen = [pick(top, rng)];
+      if (n >= 3) chosen.push(pick(low, rng));
       const rest = shuffle(cat.items.filter((it) => !chosen.includes(it)), rng);
-      chosen.push(rest[0], rest[1]);
+      while (chosen.length < n) chosen.push(rest.shift());
       const worst = chosen.reduce((a, b) => (b.trueValue < a.trueValue ? b : a));
       return [...shuffle(chosen.filter((it) => it !== worst), rng), worst];
     });
 
     // Two sealed crates dropped between rounds (never before round 2, never after the last).
-    const gaps = shuffle([1, 2, 3, 4], rng).slice(0, RULES.mysteryLots).sort();
+    const gapPool = [];
+    for (let i = 1; i <= catCount - 2; i++) gapPool.push(i);
+    const gaps = shuffle(gapPool, rng).slice(0, RULES.mysteryLots).sort((a, b) => a - b);
     const crates = shuffle(MYSTERY_CATEGORY.items, rng).slice(0, RULES.mysteryLots);
     const clues = shuffle(CRATE_CLUES, rng);
 
@@ -138,7 +169,7 @@ export class AuctionEngine {
     let crateN = 0;
     this.categories.forEach((cat, ci) => {
       catLots[ci].forEach((item, li) => {
-        this.queue.push({ kind: 'cat', item, cat, catIndex: ci, lotIndex: li, lotsInCat: RULES.lotsPerCategory, result: null });
+        this.queue.push({ kind: 'cat', item, cat, catIndex: ci, lotIndex: li, lotsInCat: n, result: null });
       });
       if (gaps.includes(ci)) {
         this.queue.push({
@@ -156,6 +187,7 @@ export class AuctionEngine {
     }));
 
     this.qi = -1;
+    this.phase = PHASE.CATEGORY_INTRO;
     this.emit('matchStart', { contenders: this.contenders, categories: this.categories, options: this.options });
     this._advance();
   }
@@ -163,25 +195,30 @@ export class AuctionEngine {
   _makeContender(id, name, isHuman, budget, allIn, persona) {
     return {
       id, name, isHuman, persona,
-      cash: budget, startCash: budget, spent: 0,
+      cash: budget, startCash: budget, spent: 0, refund: 0,
       allIn: !!allIn,
       roster: {}, bonus: [],
       mood: MOOD.CALM,
       heistUsed: false,
+      away: false,
     };
   }
 
   // Stop the match where it stands (quit to title).
   abort() {
     this.sched = [];
+    this.oracle.reset();
     this.phase = PHASE.IDLE;
     this.emit('phase', { phase: PHASE.IDLE });
   }
 
   // ---------- queries ----------
   get lot() { return this.queue[this.qi] || null; }
-  get human() { return this.contenders[HUMAN_ID]; }
+  get me() { return this.contenders[this.localId] || null; }
+  get human() { return this.me; }
   contender(id) { return this.contenders[id]; }
+  aiFor(id) { return this.ais.find((a) => a.me.id === id) || null; }
+  get humans() { return this.contenders.filter((c) => c.isHuman && !c.away); }
 
   emptySlots(c) {
     let n = 0;
@@ -213,19 +250,20 @@ export class AuctionEngine {
     return this.queue.filter((l) => l.kind === 'cat' && l.catIndex === lot.catIndex && l.lotIndex > lot.lotIndex);
   }
 
+  // Everything the local player's bid buttons need to know.
   humanState() {
-    const c = this.human;
+    const c = this.me;
     const lot = this.lot;
     const bidding = this.phase === PHASE.BIDDING;
-    const inLot = !!lot && this.active.has(c.id);
-    const passed = this.passed.has(c.id);
-    const isHigh = this.highBidder === c.id;
-    const maxBid = lot ? this.maxBidFor(c, lot) : 0;
+    const inLot = !!lot && !!c && this.active.has(c.id);
+    const passed = !!c && this.passed.has(c.id);
+    const isHigh = !!c && this.highBidder === c.id;
+    const maxBid = lot && c ? this.maxBidFor(c, lot) : 0;
     const next1 = this.currentBid + 1;
     const next2 = this.currentBid + 2;
     const live = bidding && inLot && !passed && !isHigh;
     let reason = '';
-    if (lot && !inLot) {
+    if (lot && c && !inLot) {
       reason = lot.kind === 'cat' && c.roster[lot.cat.id] ? 'You already drafted this category. Sitting this lot out.' : 'No cash free for this lot.';
     } else if (passed) reason = 'You dropped out of this lot.';
     else if (isHigh) reason = 'You hold the high bid.';
@@ -251,6 +289,16 @@ export class AuctionEngine {
     if (!c || c.mood === mood) return;
     c.mood = mood;
     this.emit('mood', { who: id, mood });
+  }
+
+  // A player closed the tab or lost their connection. Their seat stays, and stops acting.
+  setAway(id, away = true) {
+    const c = this.contenders[id];
+    if (!c || !c.isHuman || c.away === away) return;
+    c.away = away;
+    this.emit('away', { who: id, away });
+    if (this.phase === PHASE.BIDDING) this._checkEarlyClose();
+    if (this.phase === PHASE.VAULT || this.phase === PHASE.HEIST) this._checkAllDone();
   }
 
   // ---------- flow ----------
@@ -284,7 +332,7 @@ export class AuctionEngine {
     const lot = this.lot;
     if (lot.kind === 'cat' && lot.lotIndex === 0) {
       this._setPhase(PHASE.CATEGORY_INTRO, RULES.categoryIntroTime);
-      this.emit('categoryIntro', { cat: lot.cat, catIndex: lot.catIndex, lots: this.lotsOfCategory(lot.catIndex) });
+      this.emit('categoryIntro', { cat: lot.cat, catIndex: lot.catIndex });
     } else {
       this._introLot();
     }
@@ -299,8 +347,9 @@ export class AuctionEngine {
     this.clock = RULES.shotClock;
     this.callStage = 0;
     this.history = [];
+    this.revealed = false;
     this._setPhase(PHASE.LOT_INTRO, lot.kind === 'mystery' ? RULES.mysteryIntroTime : RULES.lotIntroTime);
-    this.emit('lotIntro', { lot, eligible: [...this.active] });
+    this.emit('lotIntro', { lot });
   }
 
   _openBidding() {
@@ -323,7 +372,7 @@ export class AuctionEngine {
 
   _ctx(c) {
     const lot = this.lot;
-    const others = [...this.active].filter((id) => id !== c.id && !this.passed.has(id));
+    const live = (id) => this.active.has(id) && !this.passed.has(id);
     return {
       engine: this,
       lot,
@@ -331,6 +380,7 @@ export class AuctionEngine {
       isMystery: lot.kind === 'mystery',
       currentBid: this.currentBid,
       highBidder: this.highBidder,
+      highIsHuman: this.highBidder != null && this.contenders[this.highBidder].isHuman,
       clock: this.clock,
       me: c,
       maxBid: this.maxBidFor(c, lot),
@@ -338,8 +388,9 @@ export class AuctionEngine {
       catIndex: lot.catIndex,
       totalCats: this.categories.length,
       later: this.laterLotsInCategory(lot).map((l) => l.item),
-      humanActive: this.active.has(HUMAN_ID) && !this.passed.has(HUMAN_ID),
-      rivalsActive: others.length,
+      // Is there a person still in this lot worth winding up?
+      humanActive: this.contenders.some((x) => x.isHuman && !x.away && live(x.id)),
+      rivalsActive: [...this.active].filter((id) => id !== c.id && !this.passed.has(id)).length,
       contenders: this.contenders,
     };
   }
@@ -347,6 +398,13 @@ export class AuctionEngine {
   update(dt) {
     if (this.phase === PHASE.IDLE || this.phase === PHASE.VERDICT) return;
     this.phaseClock += dt;
+    if (this.mirror) {
+      // A mirror only keeps its clocks moving between the host's ticks.
+      if (this.phase === PHASE.BIDDING) this.clock = Math.max(0, this.clock - dt);
+      else this.phaseT = Math.max(0, this.phaseT - dt);
+      if (this.phase === PHASE.ORACLE) this.oracle.t = Math.max(0, this.oracle.t - dt);
+      return;
+    }
     this._runSched();
 
     switch (this.phase) {
@@ -378,6 +436,9 @@ export class AuctionEngine {
         this.phaseT -= dt;
         if (!this.revealed && this.phaseT <= RULES.revealAt) this._revealCrate();
         if (this.phaseT <= 0) this._finishLot();
+        break;
+      case PHASE.ORACLE:
+        this.oracle.update(dt);
         break;
       case PHASE.VAULT:
         this.phaseT -= dt;
@@ -419,7 +480,7 @@ export class AuctionEngine {
   }
 
   _placeBid(c, inc) {
-    if (this.phase !== PHASE.BIDDING) return false;
+    if (!c || this.phase !== PHASE.BIDDING) return false;
     if (!this.active.has(c.id) || this.passed.has(c.id) || this.highBidder === c.id) return false;
     const amount = this.currentBid + inc;
     if (amount > this.maxBidFor(c, this.lot)) return false;
@@ -439,7 +500,7 @@ export class AuctionEngine {
   }
 
   _pass(c) {
-    if (this.phase !== PHASE.BIDDING) return false;
+    if (!c || this.phase !== PHASE.BIDDING) return false;
     if (!this.active.has(c.id) || this.passed.has(c.id) || this.highBidder === c.id) return false;
     this.passed.add(c.id);
     this.emit('pass', { by: c.id, lot: this.lot });
@@ -451,7 +512,7 @@ export class AuctionEngine {
   _checkEarlyClose() {
     const lot = this.lot;
     const challengers = [...this.active].filter((id) => {
-      if (id === this.highBidder || this.passed.has(id)) return false;
+      if (id === this.highBidder || this.passed.has(id) || this.contenders[id].away) return false;
       return this.maxBidFor(this.contenders[id], lot) >= this.currentBid + 1;
     });
     if (challengers.length === 0) {
@@ -465,7 +526,7 @@ export class AuctionEngine {
     c.spent += price;
     const entry = {
       item: lot.item, price, catId: lot.cat.id, mystery: lot.kind === 'mystery',
-      vaulted: false, hot: false, stolenFrom: null, revealed: lot.kind !== 'mystery',
+      vaulted: false, hot: false, stolenFrom: null, revealed: lot.kind !== 'mystery', dud: false,
     };
     if (lot.kind === 'cat') c.roster[lot.cat.id] = entry;
     else c.bonus.push(entry);
@@ -494,31 +555,62 @@ export class AuctionEngine {
     const jackpot = lot.item.tier === 'S' || lot.item.tier === 'A';
     const cursed = lot.item.tier === 'CURSED' || lot.item.tier === 'C';
     this.emit('mysteryReveal', { lot, item: lot.item, winner: winner.id, jackpot, cursed, price: lot.result.price });
-    for (const ai of this.ais) ai.onCrateReveal({ winner: winner.id, jackpot, cursed, item: lot.item, price: lot.result.price });
+    for (const ai of this.ais) ai.onCrateReveal({ winner: winner.id, winnerIsHuman: winner.isHuman, jackpot, cursed });
   }
 
   _finishLot() {
     const lot = this.lot;
-    if (lot.kind === 'cat' && lot.lotIndex === lot.lotsInCat - 1) {
+    const lastOfRound = lot.kind === 'cat' && lot.lotIndex === lot.lotsInCat - 1;
+    if (lastOfRound) {
       for (const c of this.contenders) {
         if (!c.roster[lot.cat.id]) {
           const item = makeDud(this.dudCount++, lot.cat.id);
           c.roster[lot.cat.id] = { item, price: 0, catId: lot.cat.id, mystery: false, vaulted: false, hot: false, stolenFrom: null, revealed: true, dud: true };
           this.emit('dud', { who: c.id, item, cat: lot.cat });
-          const ai = this.ais.find((a) => a.me.id === c.id);
+          const ai = this.aiFor(c.id);
           if (ai) ai.onDud(item);
         }
       }
+      // Between rounds the Oracle may step in. It calls _advance() itself when it is done.
+      if (this.oracle.maybeTrigger(lot.catIndex)) return;
     }
     this._advance();
   }
 
-  // ---------- human input ----------
-  humanBid(inc) { return this._placeBid(this.human, inc === 2 ? 2 : 1); }
-  humanPass() { return this._pass(this.human); }
+  // ---------- input (any seat) ----------
+  bidFor(id, inc) { return this._placeBid(this.contenders[id], inc === 2 ? 2 : 1); }
+  passFor(id) { return this._pass(this.contenders[id]); }
+  vaultFor(id, itemId) { return this.contenders[id] ? this._vault(this.contenders[id], itemId) : false; }
+  heistFor(id, victimId, itemId) { return this.contenders[id] ? this._heist(this.contenders[id], victimId, itemId) : false; }
 
-  // Fast-forward through the bits where nothing is being decided.
+  // A player says they have finished with the vault or the heist. When every person at
+  // the table has, the phase ends early.
+  doneFor(id) {
+    if (this.phase !== PHASE.VAULT && this.phase !== PHASE.HEIST) return false;
+    this.done.add(id);
+    this._checkAllDone();
+    return true;
+  }
+
+  _checkAllDone() {
+    if (this.humans.every((c) => this.done.has(c.id))) {
+      this._runSched(true);
+      this.phaseT = 0;
+    }
+  }
+
+  // ---------- input (the local seat) ----------
+  humanBid(inc) { return this.bidFor(this.localId, inc); }
+  humanPass() { return this.passFor(this.localId); }
+  humanVault(itemId) { return this.vaultFor(this.localId, itemId); }
+  humanHeist(victimId, itemId) { return this.heistFor(this.localId, victimId, itemId); }
+
+  // Fast-forward through the bits where nothing is being decided. With more than one
+  // person at the table only the vault and heist can be hurried, and only by agreement.
   skip() {
+    if (this.mirror) return false;
+    if (this.phase === PHASE.VAULT || this.phase === PHASE.HEIST) return this.doneFor(this.localId);
+    if (this.humans.length > 1) return false;
     switch (this.phase) {
       case PHASE.CATEGORY_INTRO:
       case PHASE.LOT_INTRO:
@@ -529,9 +621,6 @@ export class AuctionEngine {
       case PHASE.REVEAL:
         if (this.revealed) { this.phaseT = Math.min(this.phaseT, 0.2); return true; }
         return false;
-      case PHASE.VAULT:
-      case PHASE.HEIST:
-        this.phaseT = 0; return true;
       default:
         return false;
     }
@@ -543,6 +632,7 @@ export class AuctionEngine {
   }
 
   _openVault() {
+    this.done = new Set();
     this._setPhase(PHASE.VAULT, RULES.vaultTime);
     this.emit('vaultOpen', { seconds: RULES.vaultTime });
     for (const ai of this.ais) {
@@ -567,9 +657,8 @@ export class AuctionEngine {
     return true;
   }
 
-  humanVault(itemId) { return this._vault(this.human, itemId); }
-
   _openHeist() {
+    this.done = new Set();
     this._setPhase(PHASE.HEIST, RULES.heistTime);
     this.emit('heistOpen', { seconds: RULES.heistTime });
     for (const ai of this.ais) {
@@ -585,7 +674,7 @@ export class AuctionEngine {
   // Every steal a contender could make right now.
   heistOptions(thief) {
     const out = [];
-    if (this.phase !== PHASE.HEIST || thief.heistUsed) return out;
+    if (!thief || this.phase !== PHASE.HEIST || thief.heistUsed) return out;
     for (const victim of this.contenders) {
       if (victim.id === thief.id) continue;
       for (const entry of this.allEntries(victim)) {
@@ -600,30 +689,36 @@ export class AuctionEngine {
     return out;
   }
 
-  _heist(thief, victimId, itemId) {
-    const opt = this.heistOptions(thief).find((o) => o.victim.id === victimId && o.entry.item.id === itemId);
-    if (!opt) return false;
-    const { victim, entry, cost, mine } = opt;
-    thief.cash -= cost;
-    thief.spent += cost;
-    thief.heistUsed = true;
-    entry.hot = true;
+  // Moves a lot between lineups. A category lot is a forced swap: the victim is left
+  // holding whatever the thief had in that category. A crate simply changes hands.
+  _moveEntry(thief, victim, entry) {
     entry.stolenFrom = victim.id;
     if (entry.mystery) {
       victim.bonus = victim.bonus.filter((e) => e !== entry);
       thief.bonus.push(entry);
-    } else {
-      // A category steal is a forced swap: the victim is left holding whatever the thief had.
-      thief.roster[entry.catId] = entry;
-      if (mine) { mine.hot = true; victim.roster[entry.catId] = mine; }
-      else delete victim.roster[entry.catId];
+      return null;
     }
-    this.emit('heist', { thief: thief.id, victim: victim.id, taken: entry, given: mine, cost });
-    for (const ai of this.ais) ai.onHeist({ thief: thief.id, victim: victim.id, taken: entry, given: mine, cost });
-    return true;
+    const mine = thief.roster[entry.catId] || null;
+    thief.roster[entry.catId] = entry;
+    if (mine) victim.roster[entry.catId] = mine;
+    else delete victim.roster[entry.catId];
+    return mine;
   }
 
-  humanHeist(victimId, itemId) { return this._heist(this.human, victimId, itemId); }
+  _heist(thief, victimId, itemId) {
+    const opt = this.heistOptions(thief).find((o) => o.victim.id === victimId && o.entry.item.id === itemId);
+    if (!opt) return false;
+    const { victim, entry, cost } = opt;
+    thief.cash -= cost;
+    thief.spent += cost;
+    thief.heistUsed = true;
+    entry.hot = true;
+    const given = this._moveEntry(thief, victim, entry);
+    if (given) given.hot = true;
+    this.emit('heist', { thief: thief.id, victim: victim.id, taken: entry, given, cost });
+    for (const ai of this.ais) ai.onHeist({ thief: thief.id, victim: victim.id });
+    return true;
+  }
 
   _closeHeist() {
     this._setPhase(PHASE.HEIST_DONE, 1.6);
@@ -674,5 +769,68 @@ export class AuctionEngine {
       for (const t of e.item.synergyTags) counts[t] = (counts[t] || 0) + 1;
     }
     return counts;
+  }
+
+  // ---------- snapshots (multiplayer) ----------
+  // Plain JSON describing the whole match. Lots travel as ids and are looked up again
+  // in the receiver's own database.
+  serialize() {
+    const E = (e) => ({ i: e.item.id, p: e.price, c: e.catId, m: e.mystery ? 1 : 0, v: e.vaulted ? 1 : 0, h: e.hot ? 1 : 0, s: e.stolenFrom, r: e.revealed ? 1 : 0, d: e.dud ? 1 : 0 });
+    return {
+      v: 2,
+      o: this.options,
+      ph: this.phase, pt: this.phaseT, qi: this.qi,
+      cb: this.currentBid, hb: this.highBidder, ck: this.clock, cs: this.callStage,
+      ac: [...this.active], pa: [...this.passed], dn: [...this.done], rv: this.revealed ? 1 : 0,
+      cats: this.categories.map((c) => c.id),
+      q: this.queue.map((l) => ({ k: l.kind === 'cat' ? 0 : 1, i: l.item.id, c: l.cat.id, ci: l.catIndex, li: l.lotIndex, lc: l.lotsInCat, n: l.n, cl: l.clue || null, r: l.result })),
+      cont: this.contenders.map((c) => ({
+        id: c.id, n: c.name, h: c.isHuman ? 1 : 0, p: c.persona ? c.persona.key : null,
+        cash: c.cash, st: c.startCash, sp: c.spent, rf: c.refund, ai: c.allIn ? 1 : 0, md: c.mood, hu: c.heistUsed ? 1 : 0, aw: c.away ? 1 : 0,
+        ro: Object.fromEntries(Object.entries(c.roster).map(([k, e]) => [k, E(e)])),
+        bo: c.bonus.map(E),
+      })),
+      or: this.oracle.serialize(),
+    };
+  }
+
+  // Rebuild this engine as a mirror of a snapshot. `localId` is the seat this player holds.
+  hydrate(s, localId = this.localId) {
+    const E = (e) => ({ item: itemById(e.i), price: e.p, catId: e.c, mystery: !!e.m, vaulted: !!e.v, hot: !!e.h, stolenFrom: e.s, revealed: !!e.r, dud: !!e.d });
+    this.mirror = true;
+    this.localId = localId;
+    this.ais = [];
+    this.sched = [];
+    this.options = s.o;
+    this.phase = s.ph;
+    this.phaseT = s.pt;
+    this.qi = s.qi;
+    this.currentBid = s.cb;
+    this.highBidder = s.hb;
+    this.clock = s.ck;
+    this.callStage = s.cs;
+    this.active = new Set(s.ac);
+    this.passed = new Set(s.pa);
+    this.done = new Set(s.dn);
+    this.revealed = !!s.rv;
+    this.categories = s.cats.map((id) => categoryById(id));
+    this.queue = s.q.map((l) => ({ kind: l.k ? 'mystery' : 'cat', item: itemById(l.i), cat: categoryById(l.c), catIndex: l.ci, lotIndex: l.li, lotsInCat: l.lc, n: l.n, clue: l.cl, result: l.r }));
+    this.contenders = s.cont.map((c) => ({
+      id: c.id, name: c.n, isHuman: !!c.h, persona: c.p ? PERSONAS.find((p) => p.key === c.p) || null : null,
+      cash: c.cash, startCash: c.st, spent: c.sp, refund: c.rf, allIn: !!c.ai, mood: c.md, heistUsed: !!c.hu, away: !!c.aw,
+      roster: Object.fromEntries(Object.entries(c.ro).map(([k, e]) => [k, E(e)])),
+      bonus: c.bo.map(E),
+    }));
+    this.oracle.hydrate(s.or);
+    if (this.phase === PHASE.VERDICT) this.results = this.computeVerdict();
+  }
+
+  // Finds the lineup entry for a lot id, wherever it currently sits.
+  findEntry(itemId) {
+    for (const c of this.contenders) {
+      const e = this.allEntries(c).find((x) => x.item.id === itemId);
+      if (e) return e;
+    }
+    return null;
   }
 }
