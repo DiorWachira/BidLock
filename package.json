@@ -1,0 +1,14 @@
+{
+  "name": "bidlock",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "BidLock: the $20 draft. A static, zero-build browser auction game.",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node --test tests/engine.test.mjs && node tests/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.0"
+  }
+}

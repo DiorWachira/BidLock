@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BidLock — The $20 Draft</title>
+  <meta name="description" content="One $20 budget. Six heated categories. Outbid, bait, and heist your way to the ultimate lineup.">
+  <meta name="theme-color" content="#0b0d10">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0908'/%3E%3Cg fill='%23ffb52e'%3E%3Ccircle cx='8' cy='8' r='2.4'/%3E%3Ccircle cx='14' cy='8' r='2.4'/%3E%3Ccircle cx='20' cy='8' r='2.4'/%3E%3Ccircle cx='8' cy='14' r='2.4'/%3E%3Ccircle cx='22' cy='12' r='2.4'/%3E%3Ccircle cx='8' cy='20' r='2.4'/%3E%3Ccircle cx='14' cy='16' r='2.4'/%3E%3Ccircle cx='20' cy='16' r='2.4'/%3E%3Ccircle cx='24' cy='21' r='2.4'/%3E%3Ccircle cx='8' cy='26' r='2.4'/%3E%3Ccircle cx='14' cy='26' r='2.4'/%3E%3Ccircle cx='20' cy='26' r='2.4'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body data-screen="boot" data-tension="0">
+  <a class="skip-link" href="#deck">Skip to bidding controls</a>
+
+  <div id="app">
+    <header id="topbar">
+      <div class="bug">
+        <span id="tally" class="tally" aria-hidden="true"></span>
+        <span class="bug-name">BIDLOCK</span>
+        <span class="bug-ch">CH 20</span>
+        <span id="onair" class="onair" data-state="STANDBY">STANDBY</span>
+      </div>
+      <p id="roundinfo" class="roundinfo" aria-live="polite"></p>
+      <div class="keys" role="toolbar" aria-label="Studio controls">
+        <button id="btn-ff" class="key" type="button" aria-pressed="true" title="Fast-forward lots you are not bidding on (F)">FF</button>
+        <button id="btn-mute" class="key" type="button" aria-pressed="false" title="Mute or unmute (M)">SOUND</button>
+        <input id="vol" class="vol" type="range" min="0" max="100" value="70" aria-label="Volume">
+        <button id="btn-theme" class="key" type="button" title="House lights up or down">LIGHTS</button>
+        <button id="btn-pause" class="key" type="button" title="Pause (Esc)">PAUSE</button>
+        <button id="btn-help" class="key key-help" type="button" title="Open the run sheet (?)"><b>?</b> GUIDE</button>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- The 3D studio feed. stage3d.js inserts its canvas as the first child. -->
+      <section id="stage" aria-label="Studio feed">
+        <div class="stage-top">
+          <ol id="rundown" class="rundown" aria-label="Running order for this round"></ol>
+          <p class="feed" aria-hidden="true"><span id="cam-label">CAM 1 · WIDE</span><span id="timecode">00:00:00</span></p>
+        </div>
+        <div class="safe" aria-hidden="true"></div>
+        <div id="bigcall" class="bigcall" aria-hidden="true"></div>
+        <div id="chyron" class="chyron" aria-live="polite">
+          <p id="chy-banter" class="chy-row chy-banter"><span class="chy-tab"></span><span class="chy-text"></span></p>
+          <p id="chy-call" class="chy-row chy-call"><span class="chy-tab">AUCTIONEER</span><span class="chy-text"></span></p>
+        </div>
+        <div id="standby" class="testcard" role="status">
+          <div class="tc-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="tc-plate">
+            <strong id="standby-title">PLEASE STAND BY</strong>
+            <span id="standby-text">Rigging the studio…</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Title screen -->
+      <section id="title" aria-labelledby="title-h">
+        <div class="title-panel">
+          <p class="slug">LIVE FROM STUDIO B · 4 CONTENDERS · 26 LOTS</p>
+          <canvas id="logo" class="logo"></canvas>
+          <h1 id="title-h" class="strap">The $<span id="strap-budget">20</span> Draft</h1>
+          <p class="tagline">One $20 budget. Six heated categories. Outbid, bait, and heist your way to the ultimate lineup.</p>
+
+          <fieldset id="mode-budget" class="seg">
+            <legend>Bankroll</legend>
+            <label><input type="radio" name="budget" value="20" checked><span><b>$20</b> Classic</span></label>
+            <label><input type="radio" name="budget" value="50"><span><b>$50</b> High-Roller</span></label>
+          </fieldset>
+
+          <label id="mode-allin" class="check">
+            <input type="checkbox" id="allin">
+            <span><b>All-In Gamble</b> No $1 reserve per slot. Slots you cannot fill get a $0 Penalty Dud.</span>
+          </label>
+
+          <div class="title-actions">
+            <button id="btn-start" class="btn btn-live" type="button"><span class="b-label">GO LIVE</span><kbd>Enter</kbd></button>
+            <button id="btn-how" class="btn" type="button"><span class="b-label">HOW IT WORKS</span><kbd>?</kbd></button>
+          </div>
+          <p id="title-note" class="title-note" role="status"></p>
+        </div>
+
+        <figure id="hero" class="catalogue">
+          <div id="hero-readout" class="readout" aria-live="polite">
+            <p class="lbl" id="hero-slug">ON THE PEDESTAL</p>
+            <p class="readout-name" id="hero-name">&nbsp;</p>
+            <p class="readout-row"><span class="lbl">HYPE</span><span id="hero-hype" class="lamps"></span><span id="hero-tags" class="tags"></span></p>
+            <p class="readout-line" id="hero-line"></p>
+          </div>
+          <div id="hero-cats" class="cats" role="group" aria-label="Browse the catalogue by category"></div>
+          <figcaption>Fig. 1 — Tonight's catalogue: 64 lots in 8 categories. Hype is public. True value is sealed until the verdict.</figcaption>
+        </figure>
+      </section>
+
+      <!-- In-match HUD -->
+      <aside id="desk" aria-label="Your desk">
+        <h2 class="lbl">YOUR DESK</h2>
+        <div class="cashrow">
+          <canvas id="ec-cash"></canvas>
+          <dl>
+            <div><dt>MAX BID</dt><dd id="maxbid">--</dd></div>
+            <div><dt>MODE</dt><dd id="modechip">RESERVE</dd></div>
+          </dl>
+        </div>
+        <h3 class="lbl">LINEUP</h3>
+        <ol id="roster" class="roster"></ol>
+        <h3 class="lbl">SYNERGY <span>3 matching tags pay +40</span></h3>
+        <ul id="synergy" class="synergy"></ul>
+      </aside>
+
+      <aside id="rivals" aria-label="The room">
+        <h2 class="lbl">THE ROOM</h2>
+        <ul id="rival-list" class="rival-list"></ul>
+      </aside>
+
+      <section id="deck" aria-label="Bidding" tabindex="-1">
+        <div id="lotcard" class="lotcard">
+          <p class="lbl" id="lot-slug">LOT</p>
+          <h2 id="lot-name">&nbsp;</h2>
+          <div id="lot-tags" class="tags"></div>
+          <p class="hype"><span class="lbl">HYPE</span><span id="lot-hype" class="lamps"></span></p>
+          <p id="lot-line" class="lot-line"></p>
+        </div>
+        <div id="bidblock" class="bidblock">
+          <canvas id="ec-bid"></canvas>
+          <p id="highbid" class="highbid">OPENS AT $1</p>
+          <div class="clockrow">
+            <div id="clock" class="clock" role="img" aria-label="Shot clock"></div>
+            <span id="clocktext" class="clocktext">-.-</span>
+          </div>
+          <p id="calltext" class="calltext">STAND BY</p>
+        </div>
+        <div id="actions" class="actions">
+          <button id="btn-bid1" class="btn btn-live" type="button" disabled><span class="b-label">OPEN AT $1</span><kbd>Space</kbd></button>
+          <button id="btn-bid2" class="btn" type="button" disabled><span class="b-label">JUMP TO $2</span><kbd>J</kbd></button>
+          <button id="btn-pass" class="btn btn-quiet" type="button" disabled><span class="b-label">PASS / DROP OUT</span><kbd>P</kbd></button>
+          <p id="action-note" class="action-note" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <!-- Vault + heist -->
+      <section id="board" aria-labelledby="board-title">
+        <header class="board-head">
+          <div>
+            <p class="lbl">ENDGAME</p>
+            <h2 id="board-title">THE VAULT</h2>
+            <p id="board-help" class="board-help"></p>
+          </div>
+          <div class="board-side">
+            <canvas id="ec-board"></canvas>
+            <button id="btn-board-done" class="btn" type="button"><span class="b-label">DONE</span><kbd>Enter</kbd></button>
+          </div>
+        </header>
+        <div class="scroll-x" tabindex="0" role="region" aria-label="All four lineups">
+          <table id="board-table" class="grid-table"></table>
+        </div>
+      </section>
+
+      <!-- Verdict -->
+      <section id="verdict" aria-labelledby="verdict-head">
+        <header class="board-head">
+          <div>
+            <p class="lbl">GRAND JURY VERDICT</p>
+            <h2 id="verdict-head">The jury is counting…</h2>
+            <p id="verdict-sub" class="board-help"></p>
+          </div>
+          <div class="board-side">
+            <button id="btn-verdict-skip" class="btn btn-quiet" type="button"><span class="b-label">SKIP COUNT</span><kbd>Enter</kbd></button>
+          </div>
+        </header>
+        <div class="scroll-x" tabindex="0" role="region" aria-label="Scores by round">
+          <table id="verdict-table" class="grid-table verdict-table"></table>
+        </div>
+        <div id="verdict-actions" class="verdict-actions" hidden>
+          <button id="btn-again" class="btn btn-live" type="button"><span class="b-label">PLAY AGAIN</span><kbd>Enter</kbd></button>
+          <button id="btn-copy" class="btn" type="button"><span class="b-label">COPY DRAFT SCORECARD</span></button>
+          <button id="btn-title" class="btn btn-quiet" type="button"><span class="b-label">BACK TO TITLE</span></button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Pause: the test card -->
+  <div id="pause" class="pause" role="dialog" aria-modal="true" aria-labelledby="pause-h" hidden>
+    <div class="testcard on">
+      <div class="tc-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="tc-plate">
+        <strong id="pause-h">PLEASE STAND BY</strong>
+        <span>The auction is paused. Nobody can bid until you are back.</span>
+        <div class="tc-actions">
+          <button id="btn-resume" class="btn btn-live" type="button"><span class="b-label">BACK ON AIR</span><kbd>Esc</kbd></button>
+          <button id="btn-quit" class="btn" type="button"><span class="b-label">QUIT TO TITLE</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help drawer: the run sheet -->
+  <div id="drawer-scrim" class="scrim" hidden></div>
+  <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-h" hidden>
+    <header>
+      <div><p class="lbl">BIDLOCK · CH 20</p><h2 id="drawer-h">Run sheet</h2></div>
+      <button id="drawer-close" class="key" type="button" aria-label="Close the run sheet">CLOSE</button>
+    </header>
+    <div class="drawer-body">
+      <div class="drawer-actions">
+        <button id="drawer-tour" class="btn btn-live" type="button"><span class="b-label">TAKE THE FLOOR WALK</span></button>
+        <button id="drawer-tour-screen" class="btn" type="button"><span class="b-label">CUES FOR THIS SCREEN</span></button>
+      </div>
+
+      <h3 class="lbl">HOW A SHOW RUNS</h3>
+      <ol class="pipeline">
+        <li><b>Draft</b><span>Six rounds, one category each. Four lots a round, every contender takes exactly one, and the weakest lot always comes last.</span></li>
+        <li><b>Crates</b><span>Two sealed mystery crates arrive between rounds. Jackpot or curse, sold blind.</span></li>
+        <li><b>Vault</b><span>Ten seconds. Pay $2 to lock a lot so it cannot be stolen.</span></li>
+        <li><b>Heist</b><span>Ten seconds. One steal each: pay what the owner paid plus $1 and swap lots.</span></li>
+        <li><b>Verdict</b><span>Sealed values are revealed. Three matching tags pay +40. Highest total wins.</span></li>
+      </ol>
+
+      <h3 class="lbl">KEYS</h3>
+      <dl class="keymap">
+        <div><dt><kbd>Space</kbd> <kbd>B</kbd></dt><dd>Bid one dollar more</dd></div>
+        <div><dt><kbd>J</kbd></dt><dd>Power jump: two dollars more</dd></div>
+        <div><dt><kbd>P</kbd></dt><dd>Pass and drop out of this lot</dd></div>
+        <div><dt><kbd>Enter</kbd></dt><dd>Go live, skip an intro, finish the vault or heist</dd></div>
+        <div><dt><kbd>F</kbd></dt><dd>Fast-forward lots you are not in</dd></div>
+        <div><dt><kbd>M</kbd></dt><dd>Mute or unmute</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Pause, or close whatever is open</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Open this run sheet</dd></div>
+        <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Step through cue cards</dd></div>
+      </dl>
+
+      <h3 class="lbl">GLOSSARY</h3>
+      <dl class="glossary">
+        <div><dt>Lot</dt><dd>One thing being sold. It opens at $1.</dd></div>
+        <div><dt>Shot clock</dt><dd>Five seconds. Every bid resets it. At zero the hammer falls.</dd></div>
+        <div><dt>Hammer price</dt><dd>What the winner paid. It also sets what a thief must pay later.</dd></div>
+        <div><dt>Max bid</dt><dd>Your cash minus $1 for every other slot you still have to fill.</dd></div>
+        <div><dt>All-In</dt><dd>Play without that $1 reserve. Empty slots become Penalty Duds.</dd></div>
+        <div><dt>Penalty Dud</dt><dd>A $0 filler worth nothing, handed to anyone who ends a round empty-handed.</dd></div>
+        <div><dt>Hype</dt><dd>What the room thinks a lot is worth. Public, and not always right.</dd></div>
+        <div><dt>True value</dt><dd>The sealed score, 1 to 100, shown only at the verdict.</dd></div>
+        <div><dt>Synergy</dt><dd>Three lots sharing a tag pay +40. Five pay +80.</dd></div>
+        <div><dt>Mystery crate</dt><dd>A blind lot outside the six rounds. It adds to your total if it is good.</dd></div>
+        <div><dt>Vault</dt><dd>$2 to make one lot heist-proof.</dd></div>
+        <div><dt>Heist</dt><dd>A forced swap. The thief pays hammer price plus $1 and hands over their own lot from that category.</dd></div>
+        <div><dt>Uncontested</dt><dd>The last contender still needing a lot gets the last one, the round's booby prize, for $1.</dd></div>
+      </dl>
+
+      <h3 class="lbl">THE ROOM</h3>
+      <dl class="glossary">
+        <div><dt>LEDGER</dt><dd>The Calculated Strategist. Bids late, never overpays, snipes headline lots at 0.6 seconds.</dd></div>
+        <div><dt>HAVOC</dt><dd>The Chaos Wildcard. Power-jumps junk and crates to bait you, then drops out. Always All-In.</dd></div>
+        <div><dt>THRIFT</dt><dd>The Bargain Sniper. Hoards through rounds 1 to 3, then sweeps 4 to 6.</dd></div>
+      </dl>
+    </div>
+  </aside>
+
+  <!-- Guide: floor manager's cue cards -->
+  <div id="guide" class="guide" hidden>
+    <div class="veil"></div><div class="veil"></div><div class="veil"></div><div class="veil"></div>
+    <div id="cue-spot" class="cue-spot" aria-hidden="true"></div>
+    <section id="cue" class="cue" role="dialog" aria-labelledby="cue-title" aria-describedby="cue-body">
+      <div class="cue-holes" aria-hidden="true"><i></i><i></i></div>
+      <header>
+        <span id="cue-count" class="cue-count">CUE 1 / 11</span>
+        <button id="cue-close" class="cue-x" type="button" aria-label="Close the guide">×</button>
+      </header>
+      <h2 id="cue-title"></h2>
+      <p id="cue-body"></p>
+      <div id="cue-bar" class="cue-bar" aria-hidden="true"><i></i></div>
+      <footer>
+        <button id="cue-back" class="cue-btn" type="button">BACK</button>
+        <button id="cue-next" class="cue-btn cue-go" type="button">NEXT</button>
+      </footer>
+    </section>
+  </div>
+  <p id="guide-live" class="visually-hidden" aria-live="polite"></p>
+
+  <!-- First-visit invitation -->
+  <aside id="invite" class="invite cue" aria-labelledby="invite-h" hidden>
+    <div class="cue-holes" aria-hidden="true"><i></i><i></i></div>
+    <span class="cue-count">FLOOR MANAGER</span>
+    <h2 id="invite-h">First time in the studio?</h2>
+    <p>Take the sixty-second floor walk before you go live. Eleven cue cards, skip any time.</p>
+    <footer>
+      <button id="invite-skip" class="cue-btn" type="button">NOT NOW</button>
+      <button id="invite-start" class="cue-btn cue-go" type="button">START</button>
+    </footer>
+  </aside>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <noscript>
+    <div class="testcard on noscript">
+      <div class="tc-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="tc-plate"><strong>NO SIGNAL</strong><span>BidLock needs JavaScript to run the auction.</span></div>
+    </div>
+  </noscript>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
