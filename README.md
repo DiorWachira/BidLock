@@ -2,15 +2,23 @@
 
 **One $20 budget. Six heated categories. Outbid, bait, and heist your way to the ultimate lineup.**
 
-BidLock is a browser auction game for one player against three house rivals. Everyone gets the same $20 and has to draft a six-lot lineup, one dollar at a time, with a five-second shot clock on every bid. Two sealed mystery crates turn up mid-show, and before the scores are opened there is a vault and a ten-second heist.
+**Play it: https://diorwachira.github.io/BidLock/**
 
-It is a static site: plain HTML, CSS and ES modules. There is no build step and nothing to install to play. Every model, texture, lamp, sound and note of music is generated in code. The only thing fetched from the network is Three.js, from a CDN.
+BidLock is a browser auction game. Everyone gets the same $20 and has to draft a lineup, one dollar at a time, with a five-second shot clock on every bid. Play solo against three house rivals, or open a room and play with up to five friends by sharing a five-character code.
+
+Every lot is shown with a real photograph, in a glass-and-gold frame on a 3D auction pedestal. Two sealed mystery crates turn up mid-show, an Oracle may hand someone a hard general-knowledge question for a half-price steal, and before the scores are opened there is a vault and a ten-second heist.
+
+It is a static site: plain HTML, CSS and ES modules. There is no build step, no server of ours, and no API key.
 
 ![Bidding on a lot](screenshots/game-dark.png)
 
-| Title | Heist | Verdict |
+| Title | Oracle steal | Verdict |
 | --- | --- | --- |
-| ![Title screen](screenshots/title-dark.png) | ![Heist board](screenshots/heist.png) | ![Verdict](screenshots/verdict.png) |
+| ![Title screen](screenshots/title-dark.png) | ![Choosing a lot to steal](screenshots/oracle-pick.png) | ![Verdict](screenshots/verdict.png) |
+
+| Lobby | Six in a room | Heist |
+| --- | --- | --- |
+| ![Multiplayer lobby](screenshots/lobby.png) | ![A table of six](screenshots/room-six.png) | ![Heist board](screenshots/heist.png) |
 
 ## Play
 
@@ -22,19 +30,25 @@ Then open `http://localhost:5173`. Any static file server works (`python -m http
 
 ## Rules
 
-**Setup.** Four contenders: you, LEDGER, HAVOC and THRIFT. Each starts with $20, or $50 in High-Roller mode. A match drafts six of the seven lifestyle categories, picked at random.
+**Setup.** Two to six contenders, each with $20 (or $50 in High-Roller mode). A match drafts six of the thirteen lot categories, picked at random, or eight in Marathon mode. No lot appears twice in a match.
 
-**A round.** Each round sells four lots from one category. Every contender must end the round with exactly one. The weakest of the four always comes last, so a round is musical chairs: three real lots, four contenders, and whoever never commits is left with the booby prize for $1.
+**A round.** Each round sells one lot per contender from one category, and every contender must end the round with exactly one. The weakest lot always comes last, so a round is musical chairs: whoever never commits is left with the booby prize for $1.
 
 **Bidding.** Lots open at $1. You can bid one dollar more, power-jump two, or drop out of the lot for good. Every bid resets the shot clock to 5.0 seconds: going once at 3, going twice at 2, last call at 1, then the hammer.
 
-**Budget lockout.** Your max bid is your cash minus $1 for every other slot you still have to fill, so you can never lock yourself out of a round. Tick **All-In Gamble** on the title screen to play without that reserve; any slot you cannot fill gets a $0 Penalty Dud (Rusty Shopping Trolley, 144p Webcam and friends).
+**Budget lockout.** Your max bid is your cash minus $1 for every other slot you still have to fill, so you can never lock yourself out of a round. Tick **All-In Gamble** to play without that reserve; any slot you cannot fill gets a $0 Penalty Dud.
 
-**Mystery crates.** Two sealed crates are dropped between rounds. You see a crate and one clue. The winner's crate bursts open to show a jackpot or a cursed item. Crates sit outside the six slots and add to your total.
+**Mystery crates.** Two sealed crates are dropped between rounds. You see a crate and one clue. When the winner's crate bursts open, the photograph of what was inside appears. Crates sit outside the round slots and add to your total.
+
+**The Oracle.** After any round from the second onward (but not the last), there is a 45% chance of an Oracle intervention, at most twice a match. One contender is picked at random from those who still have a slot to fill and can afford at least one rival's lot at half price.
+
+1. They get one hard general-knowledge question and 15 seconds. Everyone watches. Wrong or out of time, and the chance is gone.
+2. Right, and they choose any rival's lot to take for half what that rival paid (rounded down, at least $1). The rival gets that half back, and is left holding the thief's lot from the same category.
+3. Before the lot moves, they have 10 seconds to choose: **lock in the half-price steal**, or **double or nothing**. Double or nothing is a second hard question. Right, and the lot is free. Wrong, and the whole steal is forfeited.
 
 **Vault.** After the last lot you have ten seconds to pay $2 to lock a lot. Locked lots cannot be stolen.
 
-**Heist.** Then ten seconds in which each contender may make one steal from any unlocked lineup. A steal costs what the owner paid plus $1, and it is a forced swap: the victim is left holding the thief's lot from that category. Bargains are the easiest things to steal, so they are the ones worth locking.
+**Heist.** Then ten seconds in which each contender may make one steal from any unlocked lineup. It costs what the owner paid plus $1, and it is a forced swap.
 
 **Verdict.** The sealed value of every lot (1 to 100) is revealed round by round. Three lots sharing a synergy tag pay +40; five pay +80. Highest total wins. Leftover cash only breaks ties.
 
@@ -42,21 +56,46 @@ Then open `http://localhost:5173`. Any static file server works (`python -m http
 
 | Public | Sealed until the verdict |
 | --- | --- |
-| Lot name, tags, hype (1 to 5 lamps) | True value and tier |
-| The four lots of the round, in order | What is in a crate |
-| Every rival's cash, lineup and mood | |
+| Lot photograph, name, tags, hype (1 to 5 lamps) | True value and tier |
+| The lots of the round, in order | What is in a crate |
+| Everyone's cash and lineup | The answer to an Oracle question |
 
-Hype is the room's opinion and is sometimes wrong. The studio even dresses the 3D sculpture by hype, so an overhyped lot looks golden.
+Hype is the room's opinion and is sometimes wrong. In the Cursed Bargains round it is wrong on purpose.
 
-### The rivals
+### The catalogue
+
+140 lots in 14 categories, 10 each: Dream Mansions & Estates · Hypercars & Exotic Rides · Internet & Pop Culture Icons · Apex Predators & Exotic Pets · Luxury Watches, Drip & Artifacts · Elite Bodyguards & Warriors · Superpowers & Reality Glitches · Next-Gen Tech & Military Hardware · Private Jets, Yachts & Bunkers · Michelin Feasts & Unlimited Food Pass · Iconic Movie Props & Vehicles · World Wonders & Secret Locations · Cursed Bargains & Troll Lots · Mystery Vault Crates.
+
+### The house rivals
 
 | Rival | Style | Tell |
 | --- | --- | --- |
 | **LEDGER**, the Calculated Strategist | Works out a dollar limit from value per point and never goes past it | Bids late; snipes headline lots with 0.6 s on the clock |
-| **HAVOC**, the Chaos Wildcard | Plays All-In with a noisy read on value | Power-jumps crates and junk to bait you, then drops out |
-| **THRIFT**, the Bargain Sniper | Hoards through rounds 1 to 3, then outspends a broke room in 4 to 6 | Rarely goes above $2 early |
+| **HAVOC**, the Chaos Wildcard | Plays All-In with a noisy read on value | Power-jumps crates and junk to bait people, then drops out |
+| **THRIFT**, the Bargain Sniper | Hoards through the first half, then outspends a broke room | Rarely goes above $2 early |
 
-Each has a reaction delay of 350 to 1400 ms, four moods (calm, sweating, smug, raging) that change their timing and lines, and its own vault and heist logic.
+Each has a reaction delay of 350 to 1400 ms, four moods that change their timing and lines, and its own vault, heist and Oracle behaviour. They do not know the trivia answers: each has a chance of being right.
+
+## Playing with friends
+
+1. On the title screen choose **Play with friends**, enter a display name, and **Create lobby**. You get a code like `BL-7K9`.
+2. Send the code to your friends. They choose **Play with friends**, enter a name and the code, and **Join room**. A link ending `?room=BL-7K9` opens the lobby with the code filled in.
+3. The host picks the bankroll and mode on the title screen, decides whether bots fill the empty seats (up to four at the table), and presses **Start match**.
+4. After the verdict the host can **Play again** or go **Back to lobby**. The room and its code stay open, so nobody re-enters anything.
+
+Two to six people can play. There is no pausing or fast-forward in a room, and the vault and heist end early once everyone has pressed Done. If a guest leaves, their seat stays in the match and stops acting. If the host leaves, the room closes.
+
+### How it works
+
+The host's browser runs the only real auction engine. Every other player connects straight to it over a WebRTC data channel, using [PeerJS](https://peerjs.com/) and its free public signalling server to find each other. Guests send small inputs; the host checks each one against the rules and broadcasts every engine event with a snapshot of the match. A guest's browser rebuilds a read-only mirror of the engine from each snapshot, so the same HUD, stage and sound code runs for everyone.
+
+| Host to everyone | Player to host |
+| --- | --- |
+| `NEW_LOT`, `BID_PLACED`, `TIMER_TICK`, `LOT_SOLD`, `TRIVIA_STEAL_TRIGGERED`, `HEIST_ACTION`, `FINAL_RESULTS`, `EVENT`, `LOBBY`, `START` | `PLACE_BID`, `PASS`, `SUBMIT_TRIVIA_ANSWER`, `STEAL_TARGET`, `DOUBLE_OR_NOTHING_CHOICE`, `VAULT_LOCK`, `DONE`, `EMOTE` |
+
+A player's seat is taken from their connection, never from the message, and the answer to an Oracle question is not sent to the room until it has been given.
+
+**Limits.** There is no relay server, so two players who are both behind strict firewalls (some offices, universities and mobile networks) may not be able to connect. The public PeerJS signalling server is a shared free service and is occasionally busy. If the host's tab is in the background the match keeps running, but browsers slow background timers, so the host should keep the tab in front.
 
 ## Controls
 
@@ -65,64 +104,99 @@ Each has a reaction delay of 350 to 1400 ms, four moods (calm, sweating, smug, r
 | `Space` or `B` | Bid one dollar more |
 | `J` | Power jump: two dollars more |
 | `P` | Pass and drop out of this lot |
-| `Enter` | Go live, skip an intro, finish the vault or heist |
-| `F` | Fast-forward lots you are not bidding on |
+| `1` to `4` | Answer the Oracle's question |
+| `Enter` | Go live, skip an intro (solo), finish the vault or heist |
+| `F` | Fast-forward lots you are not bidding on (solo) |
 | `M` | Mute |
-| `Esc` | Pause |
+| `Esc` | Pause (solo) |
 | `?` | Open the run sheet (guide, keys, glossary) |
 | `←` `→` | Step through the guide |
 
-Everything also works by mouse or touch. The top bar has sound, a volume slider, a lights toggle (dark studio or house lights up) and pause.
+Everything also works by mouse or touch.
+
+## Photographs
+
+Each lot names a Wikipedia article (`wikiQuery` in `js/data/categories.js`), and the game shows that article's lead image.
+
+- At match start, `js/utils/mediaLoader.js` looks up every lot of the match in **one** request to the MediaWiki Action API (`action=query&prop=pageimages`, up to 40 titles per call). The brief suggested one REST summary call per lot; in testing that was rate-limited (HTTP 429) after about a hundred calls, so the summary endpoint is kept only as the fallback if the batch call fails.
+- Images load with `crossOrigin = 'anonymous'` into a Three.js `TextureLoader` for the pedestal frame and into ordinary `<img>` elements for the lot card, lineups, boards and verdict.
+- Every lot has an illustrated card, drawn on a canvas, from the first moment. A photograph replaces it when it arrives. Offline, blocked, or no free image: the card stays, so nothing is ever blank.
+- `node tools/check-media.mjs` checks that all 140 articles have a usable photograph.
+
+The photographs are not part of this repository. They are loaded at run time from Wikimedia Commons under their own free licences; the "Photo: Wikipedia" link on each lot leads to the article, where the author and licence are listed. The screenshots above include some of them.
+
+Four lots from the original wish list have no freely licensed photograph on Wikipedia (the Patek Philippe Nautilus, the Batmobile Tumbler, Air Jordans and the Ecto-1), so they were swapped for an Omega Speedmaster, a submarine spy car, Air Force 1s and a Love Bug Beetle.
+
+## Trivia
+
+`js/engine/triviaSteal.js` asks the [Open Trivia DB](https://opentdb.com/) for 30 hard multiple-choice questions at the start of each match, decodes the HTML entities, and keeps only proper general knowledge (history, science, geography, art, books, mythology, politics; film, game and celebrity questions are dropped). If the service cannot be reached, a built-in bank of 50 questions is used.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
   subgraph data
-    C[categories.js<br/>64 lots, tags, clues, duds]
+    C[categories.js<br/>140 lots, tags, wikiQuery]
   end
   subgraph engine
-    E[auctionEngine.js<br/>rules, phases, events]
+    E[auctionEngine.js<br/>rules, phases, snapshots]
     A[aiBidders.js<br/>3 personas]
+    T[triviaSteal.js<br/>Oracle + question bank]
+  end
+  subgraph net
+    L[lobbyManager.js<br/>room codes, host/guest sync]
   end
   subgraph presentation
     M[main.js<br/>loop, input, wiring]
-    H[ui/hud.js<br/>desk, room, board, verdict]
+    H[ui/hud.js<br/>desk, room, Oracle, verdict]
+    V[ui/lobbyView.js]
     G[ui/guide.js<br/>cue cards, run sheet]
     X[ui/eggcrate.js<br/>lamp glyphs]
     S[render/stage3d.js<br/>Three.js studio]
     O[audio/soundEngine.js<br/>Web Audio synth]
+    P[utils/mediaLoader.js<br/>Wikipedia photos]
   end
   C --> E
   A <--> E
+  T <--> E
   E -- events --> M
-  M -- human bids --> E
+  M -- inputs --> E
+  M <--> L
+  L -. WebRTC .- L2[other players]
   M --> H
   M --> S
   M --> O
   M --> G
+  M --> V
+  P --> H
+  P --> S
   X --> H
   X --> S
 ```
 
-The engine is pure: no DOM, no audio, no rendering, and deterministic for a given seed. `main.js` runs it on a fixed 1/60 s timestep and turns its events (`bid`, `call`, `sold`, `mysteryReveal`, `heist`, `verdict` and so on) into HUD updates, stage animation and sound. That is also why the rules can be tested headless in Node.
+The engine is pure: no DOM, no audio, no rendering, and deterministic for a given seed. `main.js` runs it on a fixed 1/60 s timestep and turns its events into HUD updates, stage animation and sound. On a guest the same events arrive over the wire instead. That is also why the rules, the snapshots and the wire format can all be tested headless in Node.
 
 | File | What it does |
 | --- | --- |
-| `index.html` | Semantic layout, HUD regions, run sheet, cue cards, ES module entry |
+| `index.html` | Layout, HUD regions, lobby, Oracle panel, run sheet, cue cards |
 | `css/styles.css` | Design tokens, dark and light themes, layouts from 375 px up |
-| `js/main.js` | Screen state machine, fixed-timestep loop, input, engine wiring |
-| `js/data/categories.js` | 8 categories x 8 lots, synergy tags, crate clues, penalty duds |
-| `js/engine/auctionEngine.js` | Budget rules, shot clock, crates, vault, heist, scoring |
+| `js/main.js` | Screens, the loop, input, and the solo, host and guest roles |
+| `js/data/categories.js` | 14 categories x 10 lots, synergy tags, crate clues, penalty duds |
+| `js/engine/auctionEngine.js` | Budget rules, shot clock, crates, vault, heist, scoring, snapshots |
 | `js/engine/aiBidders.js` | LEDGER, HAVOC, THRIFT: valuation, timing, bluffing, banter |
-| `js/render/stage3d.js` | Studio set, pedestal, gavel, podiums, particles, cameras |
-| `js/audio/soundEngine.js` | Gavel, ticks, heartbeat, register, riser, stings, backing track |
+| `js/engine/triviaSteal.js` | The Oracle state machine, Open Trivia DB loader, fallback bank |
+| `js/net/lobbyManager.js` | Room codes, PeerJS and loopback transports, lobby, wire format |
+| `js/utils/mediaLoader.js` | Wikipedia lookups, image loading, illustrated fallback cards |
+| `js/render/stage3d.js` | Studio set, photo frames, gavel, podiums, particles, cameras |
+| `js/audio/soundEngine.js` | Gavel, ticks, heartbeat, siren, buzzer, stings, backing track |
 | `js/ui/eggcrate.js` | 5x7 lamp glyphs shared by the HUD and the 3D podium screens |
-| `js/ui/hud.js` | All DOM painting, chyrons, board, verdict table, scorecard text |
+| `js/ui/hud.js` | All in-match DOM painting, chyrons, boards, scorecard text |
+| `js/ui/lobbyView.js` | The lobby dialog |
 | `js/ui/guide.js` | First-run guide and help drawer |
 | `tools/serve.mjs` | Tiny static server for local play and tests |
+| `tools/check-media.mjs` | Verifies every lot's photograph |
 
-Match phases: `CATEGORY_INTRO → LOT_INTRO → BIDDING → SOLD → (REVEAL)` for each of 26 lots, then `VAULT → HEIST → VERDICT`.
+Match phases: `CATEGORY_INTRO → LOT_INTRO → BIDDING → SOLD → (REVEAL)` for each lot, with `ORACLE` possible between rounds, then `VAULT → HEIST → VERDICT`.
 
 ## Design: "Channel 20"
 
@@ -130,12 +204,13 @@ The interface is a live television broadcast rather than a generic game HUD. Eac
 
 | Reference | Became |
 | --- | --- |
-| Eggcrate lamp displays, the bulb-matrix scoreboards of 1970s and 80s studio game shows | Every price, cash total and clock, drawn lamp by lamp from a 5x7 glyph table (no font file); also the hanging price sign and podium screens in 3D |
-| Character-generator lower thirds ("chyrons") | Auctioneer calls and rival banter slide in as tabbed lower thirds |
-| Broadcast colour bars and test cards | Loading, pause, no-WebGL and fault states are all a "please stand by" card |
+| Eggcrate lamp displays, the bulb-matrix scoreboards of 1970s and 80s studio game shows | Every price, cash total, clock and room code, drawn lamp by lamp from a 5x7 glyph table (no font file); also the hanging price sign and podium screens in 3D |
+| Character-generator lower thirds ("chyrons") | Auctioneer calls, rival banter and players' reactions slide in as tabbed lower thirds |
+| Broadcast colour bars and test cards | Loading, pause, signal-lost and no-WebGL states are all a "please stand by" card |
 | Camera tally lights and ON AIR lamps | The one red in the palette. It only ever means live: on air, your high bid, the button that puts you there |
-| Marquee chase lights | Bulbs around the stage rim and arches, chasing faster as the hammer comes down |
-| A floor manager's cue cards | The first-run guide: ruled cards with punched holes, "CUE 3 / 11" |
+| Marquee chase lights | Bulbs around the stage rim and arches, chasing faster as the hammer comes down, turning violet for the Oracle |
+| Auction-house catalogue plates | Lot photographs: always in a ruled frame, always captioned with their source |
+| A floor manager's cue cards | The first-run guide: ruled cards with punched holes, "CUE 3 / 12" |
 | A production run sheet | The help drawer: pipeline, key map, glossary |
 
 The guide is offered once and never forced, because Nielsen Norman Group's study of onboarding tutorials found that users who skipped them did no worse, and rated the apps easier to use.
@@ -158,12 +233,12 @@ npm install
 npm test
 ```
 
-- `tests/engine.test.mjs` runs in plain Node: database checks, then 180 simulated matches asserting that money is conserved, every slot is filled, no lot is owned twice, the lockout holds and scores add up.
-- `tests/e2e.mjs` drives Edge or Chrome through the title hero, the guide (invite, tour across screens, Esc, never shown again), the run sheet, keyboard and mouse bidding, crate, vault, heist, verdict, scorecard copy, a whole unattended match, and a 390 px phone. It also writes the images in `screenshots/`.
+- `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
+- `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.
 
 `playwright-core` is the only dependency and is only needed for the browser tests.
 
-Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?guide=off` hides the first-visit invitation.
+Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation.
 
 ## Deploy
 
@@ -173,7 +248,6 @@ The repository is the site. Nothing needs building.
 1. Push to GitHub.
 2. In the repository, open Settings → Pages.
 3. Under "Build and deployment", choose "Deploy from a branch", branch `main`, folder `/ (root)`, and save.
-4. The game appears at `https://<user>.github.io/BidLock/` after a minute or so.
 
 The empty `.nojekyll` file tells Pages to serve the files as they are.
 
@@ -181,10 +255,10 @@ The empty `.nojekyll` file tells Pages to serve the files as they are.
 
 ## Notes
 
-- **3D needs WebGL and a route to the CDN.** If either is missing, the feed shows a NO SIGNAL card and the auction still plays from the desk.
+- **What is fetched from the network:** Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, and trivia questions from the Open Trivia DB. The last two have built-in fallbacks. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
 - **Slow graphics.** If frames run slow the stage lowers its resolution and turns shadows off by itself.
 - **Sound starts on your first click or key press**, because browsers do not allow audio before that.
 
 ## Credits
 
-The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, lots, art, sound and code are its own, and it is not affiliated with or endorsed by any creator or channel.
+The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable.

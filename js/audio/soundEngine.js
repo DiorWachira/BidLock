@@ -251,6 +251,29 @@ export class SoundEngine {
     this._tone({ type: 'triangle', freq: 500 + step * 40, dur: 0.05, peak: 0.08 });
   }
 
+  // Oracle intervention: a two-tone siren that sweeps up and back.
+  siren() {
+    for (let i = 0; i < 3; i++) {
+      this._tone({ type: 'sawtooth', freq: 420, to: 880, t: i * 0.62, dur: 0.3, peak: 0.16, attack: 0.02, filter: { freq: 1800, q: 2 } });
+      this._tone({ type: 'sawtooth', freq: 880, to: 420, t: i * 0.62 + 0.3, dur: 0.3, peak: 0.16, attack: 0.02, filter: { freq: 1800, q: 2 } });
+    }
+    this._tone({ type: 'sine', freq: 55, to: 40, dur: 1.8, peak: 0.5, attack: 0.05 });
+  }
+
+  // Wrong answer.
+  buzzer() {
+    this._tone({ type: 'sawtooth', freq: 98, dur: 0.7, peak: 0.3, attack: 0.01, filter: { freq: 520, q: 1 } });
+    this._tone({ type: 'square', freq: 104, dur: 0.7, peak: 0.14, attack: 0.01, filter: { freq: 420, q: 1 } });
+  }
+
+  // Right answer.
+  chime() {
+    [[72, 0], [76, 0.09], [79, 0.18], [84, 0.27]].forEach(([n, t]) => {
+      this._tone({ type: 'sine', freq: NOTE(n), t, dur: 0.5, peak: 0.2 });
+      this._tone({ type: 'triangle', freq: NOTE(n + 12), t, dur: 0.25, peak: 0.06 });
+    });
+  }
+
   // ---------- backing track ----------
   startMusic() {
     if (!this.ready || this.musicOn) return;
