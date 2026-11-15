@@ -16,6 +16,8 @@ export const PERSONAS = Object.freeze([
     noise: 4,
     jump: 0.06,
     synergySense: 1,
+    trivia: 0.7,
+    gamble: 0.25,
     lines: {
       bid: ['Value says yes.', 'Still under my number.', 'One more. The maths holds.'],
       jump: ['Jumping. Efficiently.', 'Two. Saves us all some time.'],
@@ -51,6 +53,8 @@ export const PERSONAS = Object.freeze([
     noise: 20,
     jump: 0.38,
     synergySense: 0.2,
+    trivia: 0.3,
+    gamble: 0.8,
     lines: {
       bid: ['Go on then!', 'Why not?', 'Bid. No idea what it is. Bid.'],
       jump: ['PLUS TWO! Keep up!', 'Jumping it! Who is scared?', 'Two more, just for the noise!'],
@@ -88,6 +92,8 @@ export const PERSONAS = Object.freeze([
     noise: 9,
     jump: 0.08,
     synergySense: 0.6,
+    trivia: 0.5,
+    gamble: 0.5,
     lines: {
       bid: ['A dollar. Just a dollar.', 'I can stretch to that.', 'Go on, one more, since it is cheap.'],
       jump: ['Two. I have got it to spare, and you have not.'],
@@ -191,10 +197,10 @@ export class AIBidder {
     const alt = ctx.later.length === 0 ? 1 : betterLater ? 0.75 : onlyJunkLeft && v >= 42 ? 1.35 : 1.12;
     let mult;
     if (key === 'ledger') mult = 0.92;
-    else if (key === 'thrift') mult = ctx.catIndex < 3 ? 0.4 : 1.35;
+    else if (key === 'thrift') mult = ctx.catIndex < ctx.totalCats / 2 ? 0.4 : 1.35;
     else mult = 0.6 + rng() * 0.9;
     let limit = Math.round(perSlot * quality * alt * mult);
-    if (key === 'thrift' && ctx.catIndex < 3) limit = Math.min(limit, v > 85 ? 3 : 2);
+    if (key === 'thrift' && ctx.catIndex < ctx.totalCats / 2) limit = Math.min(limit, v > 85 ? 3 : 2);
     return clamp(limit, 1, Math.max(1, ctx.maxBid));
   }
 
@@ -294,7 +300,7 @@ export class AIBidder {
       return null;
     }
     if (this.timer > 0) return null;
-    const humanTookIt = ctx.highBidder === 0 && this.baitBids >= 1;
+    const humanTookIt = ctx.highIsHuman && this.baitBids >= 1;
     if (humanTookIt && (this.baitBids >= 2 || ctx.currentBid >= this.baitCeil - 1)) {
       this.speak('baitDrop', 1);
       this.setMood(MOOD.SMUG);
@@ -331,7 +337,7 @@ export class AIBidder {
       return;
     }
     if (!wasEngaged || result.uncontested) return;
-    if (result.winner === 0) {
+    if (ctx.contenders[result.winner].isHuman) {
       if (!ctx.isMystery && result.price >= Math.max(4, this.limit + 3)) { this.speak('humanOverpay', 0.5); return; }
       if (!ctx.isMystery && this.v >= 80 && result.price <= 3) { this.speak('humanSteal', 0.5); return; }
       if (ctx.isMystery && this.wasBait && result.price >= 3) { this.speak('humanOverpay', 0.7); return; }
@@ -342,11 +348,11 @@ export class AIBidder {
     }
   }
 
-  onCrateReveal({ winner, jackpot, cursed }) {
+  onCrateReveal({ winner, winnerIsHuman, jackpot, cursed }) {
     if (winner === this.me.id) {
       if (jackpot) { this.setMood(MOOD.SMUG); this.speak('crateJackpot', 1); }
       else if (cursed) { this.setMood(MOOD.RAGING); this.speak('crateCursed', 1); }
-    } else if (winner === 0) {
+    } else if (winnerIsHuman) {
       if (cursed) this.speak('humanCursed', 0.5);
       else if (jackpot) this.speak('humanJackpot', 0.4);
     }
@@ -395,6 +401,27 @@ export class AIBidder {
       choice = scored[Math.floor(this.rng() * scored.length)];
     }
     return choice ? { victimId: choice.o.victim.id, itemId: choice.o.entry.item.id } : null;
+  }
+
+  // ---------- the Oracle ----------
+  // Rivals do not know the answers. Each has a chance of being right.
+  oracleAnswer(correct, count) {
+    if (this.rng() < this.persona.trivia) return correct;
+    const wrong = [];
+    for (let i = 0; i < count; i++) if (i !== correct) wrong.push(i);
+    return wrong[Math.floor(this.rng() * wrong.length)];
+  }
+
+  oraclePick(options) {
+    const scored = options.map((o) => ({ o, gain: this.perceive(o.entry.item, null) - (o.mine ? this.perceive(o.mine.item, null) : 0) }));
+    scored.sort((a, b) => b.gain - a.gain);
+    if (this.persona.key === 'havoc' && this.rng() < 0.4) return scored[Math.floor(this.rng() * scored.length)].o;
+    return scored[0].o;
+  }
+
+  oracleGamble(cost) {
+    const p = this.persona.gamble + (cost >= 3 ? 0.15 : 0);
+    return this.rng() < p;
   }
 
   onHeist({ thief, victim }) {
