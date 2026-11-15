@@ -1,13 +1,24 @@
-// BIDLOCK — orchestrator. Owns the screen state machine, the fixed-timestep loop, input,
-// and the wiring between the rules engine, the 3D stage, the sound engine and the HUD.
+// BIDLOCK 2.0 — orchestrator. Owns the screen state machine, the fixed-timestep loop,
+// input, and the wiring between the rules engine, the 3D stage, the sound engine, the
+// HUD, the photo loader and the multiplayer room.
+//
+// Three roles share this file:
+//   solo    one person and the house rivals; this browser runs the engine.
+//   host    a room; this browser runs the engine and broadcasts every event.
+//   client  a room; this browser holds a mirror, rebuilt from the host's snapshots,
+//           and sends its inputs to the host.
+// Engine events drive the HUD, stage and sound the same way in all three.
 
-import { AuctionEngine, PHASE, RULES, HUMAN_ID } from './engine/auctionEngine.js';
+import { AuctionEngine, PHASE, RULES, soloSeats } from './engine/auctionEngine.js';
 import { PERSONAS } from './engine/aiBidders.js';
 import { CATEGORIES, MYSTERY_CATEGORY, CRATE_CLUES, SYNERGY_TAGS, hypeLamps } from './data/categories.js';
 import { SoundEngine } from './audio/soundEngine.js';
 import { EggcrateDisplay } from './ui/eggcrate.js';
 import { Hud, esc } from './ui/hud.js';
 import { Guide, HelpDrawer } from './ui/guide.js';
+import { LobbyView } from './ui/lobbyView.js';
+import { MediaLoader } from './utils/mediaLoader.js';
+import { LobbyManager, WIRE, wireType, packEvent, unpackEvent, EMOTES } from './net/lobbyManager.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 
@@ -28,37 +39,61 @@ const debug = {
   speed: Math.max(0.25, Math.min(40, Number(params.get('speed')) || 1)),
   seed: params.has('seed') ? Number(params.get('seed')) | 0 : null,
   auto: params.get('auto') === '1',
+  oracle: params.get('oracle') === '1' ? 1 : params.get('oracle') === '0' ? 0 : null,
+  oracleSeat: params.has('oracleseat') ? Number(params.get('oracleseat')) | 0 : null,
+  triviaLocal: params.get('trivia') === 'local',
+  mediaOff: params.get('media') === 'off',
+  netLocal: params.get('net') === 'local',
 };
 
 const settings = {
   budget: store.get('budget', 20) === 50 ? 50 : 20,
   allIn: !!store.get('allIn', false),
+  marathon: !!store.get('marathon', false),
   volume: Math.max(0, Math.min(1, Number(store.get('volume', 0.7)) || 0)),
   muted: !!store.get('muted', false),
   theme: store.get('theme', 'dark') === 'light' ? 'light' : 'dark',
   ff: store.get('ff', true) !== false,
 };
 
-const COLORS = ['#f3ead6', ...PERSONAS.map((p) => p.color)];
-const CAM_LABELS = { title: 'CAM 1 · WIDE', wide: 'CAM 1 · WIDE', bid: 'CAM 2 · FLOOR', pedestal: 'CAM 3 · PEDESTAL', gavel: 'CAM 4 · GAVEL', heist: 'CAM 5 · OVERHEAD', podium: 'CAM 6 · PODIUM' };
+const HUMAN_COLORS = ['#f3ead6', '#e89b4c', '#6ea3d8', '#8fd08a', '#c58be0', '#e6d24a'];
+const CAM_LABELS = { title: 'CAM 1 · WIDE', wide: 'CAM 1 · WIDE', bid: 'CAM 2 · FLOOR', pedestal: 'CAM 3 · PEDESTAL', gavel: 'CAM 4 · GAVEL', heist: 'CAM 5 · OVERHEAD', podium: 'CAM 6 · PODIUM', focus: 'CAM 7 · CONTENDER' };
 const STEP = 1 / 60;
 
+// One colour per seat: people take the six seat colours in order, rivals keep their own.
+function colorsFor(seats) {
+  let k = 0;
+  return seats.map((s) => {
+    if (s.kind === 'ai') return (PERSONAS.find((p) => p.key === s.persona) || PERSONAS[0]).color;
+    return HUMAN_COLORS[k++ % HUMAN_COLORS.length];
+  });
+}
+
+const media = new MediaLoader(debug.mediaOff ? { fetchImpl: async () => { throw new Error('media switched off'); } } : {});
 const engine = new AuctionEngine();
 const audio = new SoundEngine();
-const hud = new Hud({ colors: COLORS });
+const hud = new Hud({ media });
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let stage = null;
 let screen = 'boot';
+let role = 'solo';
+let mySeat = 0;
+let colors = HUMAN_COLORS.slice(0, 1).concat(PERSONAS.map((p) => p.color));
 const pauseReasons = new Set();
 let seconds = 0;
 let acc = 0;
-let last = performance.now();
+let lastStep = performance.now();
+let lastFrame = performance.now();
 let lastTickClock = 99;
 let camReturn = 0;
+let tickAcc = 0;
+let oracleBeat = 0;
+let lobbyView = null;
+let autoDone = '';
 const verdict = { active: false, step: 0, total: 0, timer: 0, done: false };
-const hero = { cat: 0, idx: new Array(CATEGORIES.length + 1).fill(0), auto: 0, touched: -99 };
 const heroCats = [...CATEGORIES, MYSTERY_CATEGORY];
+const hero = { cat: 0, idx: new Array(heroCats.length).fill(0), auto: 0, touched: -99, item: null };
 
 // Calls go straight through when the 3D stage exists and quietly vanish when it does not.
 const S = new Proxy({}, {
@@ -75,12 +110,15 @@ function setCam(mode) {
 
 const inMatch = () => engine.phase !== PHASE.IDLE;
 const isPaused = () => pauseReasons.size > 0;
+const who = (id, cap = false) => hud.who(engine, id, cap);
 
 function refreshAir() {
   hud.setOnAir(isPaused() ? 'STANDBY' : inMatch() && engine.phase !== PHASE.VERDICT ? 'ON AIR' : 'OFF AIR');
 }
 
+// Only a solo match can be held. A live room keeps running whatever one player opens.
 function setPaused(reason, on) {
+  if (on && role !== 'solo') return;
   if (on) pauseReasons.add(reason); else pauseReasons.delete(reason);
   $('#pause').hidden = !pauseReasons.has('user');
   if (pauseReasons.has('user') || pauseReasons.has('hidden')) audio.suspend(); else audio.resume();
@@ -94,6 +132,22 @@ function setScreen(name) {
   $('#bigcall').classList.remove('on'); // a banner from the last screen should not linger on this one
   refreshAir();
   S.resize();
+}
+
+function setRole(next) {
+  role = next;
+  document.body.dataset.room = next;
+  hud.solo = next === 'solo';
+  hud.setEmotes(EMOTES, next !== 'solo');
+  if (next !== 'solo') {
+    pauseReasons.clear();
+    $('#pause').hidden = true;
+  }
+  $('#btn-pause').disabled = next !== 'solo';
+  $('#btn-ff').disabled = next !== 'solo';
+  $('#btn-again').hidden = next === 'client';
+  $('#btn-title .b-label').textContent = next === 'host' ? 'BACK TO LOBBY' : next === 'client' ? 'LEAVE ROOM' : 'BACK TO TITLE';
+  $('#btn-quit .b-label').textContent = 'QUIT TO TITLE';
 }
 
 // ---------- settings ----------
@@ -122,6 +176,7 @@ function toggleMute() {
 }
 
 function toggleFF() {
+  if (role !== 'solo') { hud.toast('Fast-forward is for solo matches. A room runs on one clock.'); return; }
   settings.ff = !settings.ff;
   store.set('ff', settings.ff);
   $('#btn-ff').setAttribute('aria-pressed', String(settings.ff));
@@ -131,9 +186,15 @@ function toggleFF() {
 function applyModes() {
   for (const r of document.querySelectorAll('input[name="budget"]')) r.checked = Number(r.value) === settings.budget;
   $('#allin').checked = settings.allIn;
+  $('#marathon').checked = settings.marathon;
   $('#strap-budget').textContent = String(settings.budget);
   document.title = `BidLock — The $${settings.budget} Draft`;
   S.setSign(`$${settings.budget}`);
+  if (lobbyView) lobbyView.render(lobby.state);
+}
+
+function modeSummary() {
+  return `$${settings.budget} bankroll · ${settings.marathon ? 'Marathon, 8 rounds' : '6 rounds'}${settings.allIn ? ' · All-In for every player' : ''}. Change these on the title screen.`;
 }
 
 // ---------- title hero: browse the real catalogue on the pedestal ----------
@@ -159,11 +220,23 @@ function buildHero() {
   });
 }
 
+function heroPhoto() {
+  const item = hero.item;
+  if (!item) return;
+  const sealed = heroCats[hero.cat] === MYSTERY_CATEGORY;
+  const img = $('#hero-img');
+  img.src = media.src(item, { sealed });
+  img.alt = sealed ? 'A sealed wooden crate' : item.name;
+  if (sealed) img.removeAttribute('data-media'); else img.dataset.media = item.id;
+  $('#hero-credit').innerHTML = hud.credit(item, sealed);
+}
+
 function showHero(catIndex) {
   hero.cat = catIndex;
   const cat = heroCats[catIndex];
   const mystery = cat === MYSTERY_CATEGORY;
   const item = cat.items[hero.idx[catIndex]];
+  hero.item = item;
   for (const b of document.querySelectorAll('#hero-cats .cat')) b.setAttribute('aria-pressed', String(Number(b.dataset.cat) === catIndex));
   $('#hero-slug').textContent = `${cat.name.toUpperCase()} · LOT ${hero.idx[catIndex] + 1} OF ${cat.items.length}`;
   if (mystery) {
@@ -177,24 +250,111 @@ function showHero(catIndex) {
     $('#hero-hype').innerHTML = Array.from({ length: 5 }, (_, i) => `<i data-on="${i < lamps ? 1 : 0}"></i>`).join('') + `<span class="visually-hidden">${lamps} of 5</span>`;
     $('#hero-tags').innerHTML = item.synergyTags.map((t) => `<span class="tag">${esc(SYNERGY_TAGS[t])}</span>`).join('');
     $('#hero-line').textContent = item.commentaryLine;
+    media.prefetch([item]);
   }
+  heroPhoto();
   S.showLot(item, { mystery });
   S.setPrice(mystery ? 0 : Math.max(1, Math.round(item.baseAppeal / 10)));
   S.setSign(`$${settings.budget}`);
 }
 
 function heroAttract(dt) {
-  if (screen !== 'title' || isPaused()) return;
+  if (screen !== 'title' || isPaused() || (lobbyView && lobbyView.isOpen)) return;
   hero.auto += dt;
-  if (hero.auto < 4.2 || seconds - hero.touched < 9) return;
+  if (hero.auto < 4.6 || seconds - hero.touched < 9) return;
   hero.auto = 0;
   const i = (hero.cat + 1) % heroCats.length;
   hero.idx[i] = (hero.idx[i] + 1) % heroCats[i].items.length;
   showHero(i);
 }
 
+// ---------- the room ----------
+const lobby = new LobbyManager({
+  transport: debug.netLocal ? 'local' : 'peer',
+  onState: (state) => {
+    if (lobbyView) lobbyView.render(state);
+    const chip = $('#roomchip');
+    const open = state.status === 'open' && state.role != null;
+    chip.hidden = !open;
+    if (open) chip.textContent = `ROOM ${state.code} · ${state.players.filter((p) => !p.away).length}`;
+  },
+  onMessage: (msg) => fromHost(msg),
+  onInput: (seat, msg) => fromPlayer(seat, msg),
+  onClosed: () => {
+    engine.abort();
+    audio.stopMusic();
+    setRole('solo');
+    if (lobbyView) lobbyView.close();
+    $('#lost').hidden = false;
+    $('#btn-lost').focus();
+  },
+});
+
+// What the local player does. A client sends it to the host; everyone else acts directly.
+const act = {
+  bid(inc) { if (role === 'client') { lobby.send({ t: WIRE.PLACE_BID, inc }); return true; } return engine.bidFor(engine.localId, inc); },
+  pass() { if (role === 'client') { lobby.send({ t: WIRE.PASS }); return true; } return engine.passFor(engine.localId); },
+  vault(itemId) { if (role === 'client') { lobby.send({ t: WIRE.VAULT_LOCK, item: itemId }); return true; } return engine.vaultFor(engine.localId, itemId); },
+  heist(victim, itemId) { if (role === 'client') { lobby.send({ t: WIRE.STEAL_TARGET, mode: 'heist', victim, item: itemId }); return true; } return engine.heistFor(engine.localId, victim, itemId); },
+  done() { if (role === 'client') { lobby.send({ t: WIRE.DONE }); return true; } return engine.doneFor(engine.localId); },
+  answer(index) { if (role === 'client') { lobby.send({ t: WIRE.SUBMIT_TRIVIA_ANSWER, index }); return true; } return engine.oracle.answer(engine.localId, index); },
+  pick(victim, itemId) { if (role === 'client') { lobby.send({ t: WIRE.STEAL_TARGET, mode: 'oracle', victim, item: itemId }); return true; } return engine.oracle.pick(engine.localId, victim, itemId); },
+  gamble(risk) { if (role === 'client') { lobby.send({ t: WIRE.DOUBLE_OR_NOTHING_CHOICE, risk: !!risk }); return true; } return engine.oracle.gamble(engine.localId, !!risk); },
+  emote(k) { if (role === 'client') lobby.send({ t: WIRE.EMOTE, k }); else if (EMOTES[k]) engine.say(engine.localId, EMOTES[k], 'emote'); },
+};
+
+// Host: an input from a player's seat. Everything is checked again by the engine.
+function fromPlayer(seat, msg) {
+  if (role !== 'host' || !inMatch() || !engine.contenders[seat]) return;
+  const int = (v) => (Number.isInteger(v) ? v : -1);
+  switch (msg.t) {
+    case WIRE.PLACE_BID: engine.bidFor(seat, msg.inc === 2 ? 2 : 1); break;
+    case WIRE.PASS: engine.passFor(seat); break;
+    case WIRE.VAULT_LOCK: engine.vaultFor(seat, String(msg.item)); break;
+    case WIRE.STEAL_TARGET:
+      if (msg.mode === 'oracle') engine.oracle.pick(seat, int(msg.victim), String(msg.item));
+      else engine.heistFor(seat, int(msg.victim), String(msg.item));
+      break;
+    case WIRE.SUBMIT_TRIVIA_ANSWER: engine.oracle.answer(seat, int(msg.index)); break;
+    case WIRE.DOUBLE_OR_NOTHING_CHOICE: engine.oracle.gamble(seat, !!msg.risk); break;
+    case WIRE.DONE: engine.doneFor(seat); break;
+    case WIRE.EMOTE: if (EMOTES[int(msg.k)]) engine.say(seat, EMOTES[msg.k], 'emote'); break;
+    case WIRE.BYE: engine.setAway(seat, true); break;
+    default: break;
+  }
+}
+
+// Client: something from the host.
+function fromHost(msg) {
+  if (msg.t === WIRE.START) {
+    mySeat = Number.isInteger(msg.seat) ? msg.seat : 0;
+    setRole('client');
+    if (lobbyView) lobbyView.close();
+    audio.unlock();
+    applySound();
+    audio.startMusic();
+    audio.setTension(0);
+    verdict.active = false;
+    verdict.done = false;
+    hud.clearChyrons();
+    return;
+  }
+  if (role !== 'client') return;
+  if (msg.t === WIRE.TIMER_TICK) {
+    if (engine.mirror && inMatch()) {
+      engine.clock = msg.ck;
+      engine.phaseT = msg.pt;
+      engine.oracle.t = msg.ot;
+    }
+    return;
+  }
+  if (!msg.ev || !msg.s) return;
+  engine.hydrate(msg.s, mySeat);
+  engine.emit(msg.ev, unpackEvent(engine, msg.ev, msg.d));
+}
+
 // ---------- match control ----------
-function startMatch() {
+function launch(seats) {
   audio.unlock();
   applySound();
   audio.startMusic();
@@ -202,71 +362,127 @@ function startMatch() {
   verdict.active = false;
   verdict.done = false;
   acc = 0;
+  tickAcc = 0;
+  autoDone = '';
   hud.clearChyrons();
   const seed = debug.seed != null ? debug.seed : (Date.now() ^ (Math.random() * 0x7fffffff)) & 0x7fffffff;
-  engine.startMatch({ budget: settings.budget, allIn: settings.allIn, seed });
+  engine.startMatch({ budget: settings.budget, allIn: settings.allIn, marathon: settings.marathon, seed, seats, localId: 0, oracleChance: debug.oracle, oracleSeat: debug.oracleSeat });
+  // Fresh questions if the trivia service is reachable; the built-in bank otherwise.
+  if (!debug.triviaLocal) engine.trivia.load().catch(() => 0);
   $('#deck').focus({ preventScroll: true });
 }
 
-function quitToTitle() {
-  engine.abort();
+function startSolo() {
+  if (lobby.active) lobby.leave();
+  setRole('solo');
+  launch(soloSeats());
+}
+
+function startRoom() {
+  if (!lobby.canStart()) return;
+  const seats = lobby.beginMatch();
+  setRole('host');
+  if (lobbyView) lobbyView.close();
+  launch(seats);
+}
+
+function startMatch() {
+  if (role === 'host' && lobby.isHost) startRoom(); else if (role !== 'client') startSolo();
+}
+
+function toTitle() {
   audio.stopMusic();
   verdict.active = false;
   pauseReasons.delete('user');
-  setPaused('user', false);
+  $('#pause').hidden = true;
   hud.clearChyrons();
-  S.setContenders(defaultUnits());
+  hud.hideOracle();
+  S.setOracle(false);
+  S.setContenders(defaultUnits(), 0);
   S.setCallStage(0);
   setScreen('title');
   setCam('title');
   hero.touched = -99;
   showHero(hero.cat);
-  $('#btn-start').focus({ preventScroll: true });
+}
+
+// Solo: back to the title. Host: the room stays open and everyone returns to the lobby.
+// Client: leave the room.
+function quitToTitle() {
+  const was = role;
+  engine.abort(); // a host's abort reaches every client as a phase change
+  if (was === 'host') lobby.endMatch();
+  if (was === 'client') lobby.leave();
+  setRole('solo');
+  toTitle();
+  if (was === 'host' && lobbyView) lobbyView.open();
+  else $('#btn-start').focus({ preventScroll: true });
 }
 
 function defaultUnits() {
   return [
-    { id: 0, name: 'YOU', key: 'you', color: COLORS[0], cash: settings.budget },
+    { id: 0, name: 'YOU', key: 'you', color: HUMAN_COLORS[0], cash: settings.budget },
     ...PERSONAS.map((p, i) => ({ id: i + 1, name: p.name, key: p.key, color: p.color, cash: settings.budget })),
   ];
 }
 
 function togglePause() {
   if (!inMatch()) return;
+  if (role !== 'solo') { hud.toast('No pausing a live room.'); return; }
   const on = !pauseReasons.has('user');
   setPaused('user', on);
   if (on) $('#btn-resume').focus();
   else $('#btn-pause').focus({ preventScroll: true });
 }
 
+function nudge() {
+  audio.denied();
+  const note = $('#action-note');
+  note.classList.remove('nudge');
+  void note.offsetWidth;
+  note.classList.add('nudge');
+}
+
 function doBid(inc) {
   audio.unlock();
   if (isPaused() || engine.phase !== PHASE.BIDDING) return;
-  if (!engine.humanBid(inc)) {
-    audio.denied();
-    const note = $('#action-note');
-    note.classList.remove('nudge');
-    void note.offsetWidth;
-    note.classList.add('nudge');
-  }
+  const hs = engine.humanState();
+  if (!(inc === 2 ? hs.canBid2 : hs.canBid1) || !act.bid(inc)) nudge();
 }
 
 function doPass() {
   audio.unlock();
   if (isPaused() || engine.phase !== PHASE.BIDDING) return;
-  if (!engine.humanPass()) audio.denied();
+  if (!engine.humanState().canPass || !act.pass()) audio.denied();
 }
 
 // ---------- engine events ----------
 function wireEngine() {
-  const name = (id) => (id === HUMAN_ID ? 'YOU' : engine.contenders[id].name);
   const syncCash = () => { for (const c of engine.contenders) S.setCash(c.id, c.cash); };
 
+  // Host: every event goes to the room with a snapshot of the match.
+  engine.on('*', (type, data) => {
+    if (role === 'host') lobby.broadcast({ t: wireType(type), ev: type, d: packEvent(type, data), s: engine.serialize() });
+  });
+
+  engine.on('phase', ({ phase }) => {
+    // The host ended the match under us: back to the lobby.
+    if (role === 'client' && phase === PHASE.IDLE) {
+      setRole('solo');
+      toTitle();
+      if (lobbyView && lobby.active) lobbyView.open();
+    }
+  });
+
   engine.on('matchStart', () => {
-    S.setContenders(engine.contenders.map((c) => ({ id: c.id, name: c.name, key: c.persona ? c.persona.key : 'you', color: COLORS[c.id], cash: c.cash })));
+    colors = colorsFor(engine.contenders.map((c) => ({ kind: c.isHuman ? 'human' : 'ai', persona: c.persona ? c.persona.key : null })));
+    S.setContenders(engine.contenders.map((c) => ({ id: c.id, name: c.id === engine.localId ? 'YOU' : c.name, key: c.persona ? c.persona.key : 'you', color: colors[c.id], cash: c.cash })), engine.localId);
     S.setTheme(settings.theme);
-    hud.buildMatch(engine);
+    hud.hideOracle();
+    hud.buildMatch(engine, colors);
     setScreen('game');
+    $('#lost').hidden = true;
+    media.prefetch(engine.queue.map((l) => l.item));
   });
 
   engine.on('categoryIntro', ({ cat, catIndex }) => {
@@ -316,7 +532,7 @@ function wireEngine() {
     setCam('bid');
     hud.sync(engine);
     hud.flashBid();
-    hud.call(`${inc === 2 ? 'Power jump! ' : ''}$${amount} from ${by === HUMAN_ID ? 'you' : name(by)}.`);
+    hud.call(`${inc === 2 ? 'Power jump! ' : ''}$${amount} from ${who(by)}.`);
     lastTickClock = 99;
   });
 
@@ -324,7 +540,7 @@ function wireEngine() {
     S.react(by, 'shake');
     audio.pass();
     hud.sync(engine);
-    if (by === HUMAN_ID) hud.call('You drop out of this lot.');
+    if (by === engine.localId) hud.call('You drop out of this lot.');
   });
 
   engine.on('call', ({ stage: st, hasBid }) => {
@@ -353,9 +569,7 @@ function wireEngine() {
     hud.sync(engine);
     hud.bigCall(uncontested ? 'Uncontested' : 'Sold!', 'sold');
     const what = lot.kind === 'mystery' ? 'The crate' : lot.item.name;
-    hud.call(uncontested
-      ? `${what} goes uncontested to ${winner === HUMAN_ID ? 'you' : name(winner)} for $1.`
-      : `Sold! ${what} to ${winner === HUMAN_ID ? 'you' : name(winner)} for $${price}.`);
+    hud.call(uncontested ? `${what} goes uncontested to ${who(winner)} for $1.` : `Sold! ${what} to ${who(winner)} for $${price}.`);
   });
 
   engine.on('nosale', ({ lot }) => {
@@ -382,27 +596,107 @@ function wireEngine() {
     if (jackpot) audio.fanfare(); else if (cursed) audio.trombone(); else audio.register();
     hud.sync(engine);
     hud.bigCall(jackpot ? 'Jackpot!' : cursed ? 'Cursed!' : 'Fair enough', jackpot ? 'sold' : 'nosale');
-    hud.call(`${winner === HUMAN_ID ? 'You open' : name(winner) + ' opens'} it: ${item.name}. ${item.commentaryLine}`);
+    hud.call(`${winner === engine.localId ? 'You open' : who(winner) + ' opens'} it: ${item.name}. ${item.commentaryLine}`);
   });
 
-  engine.on('dud', ({ who, item }) => {
+  engine.on('dud', ({ who: id, item }) => {
     hud.sync(engine);
-    hud.call(`${who === HUMAN_ID ? 'You are' : name(who) + ' is'} handed a Penalty Dud: ${item.name}. ${item.commentaryLine}`);
-    if (who === HUMAN_ID) audio.trombone();
+    hud.call(`${id === engine.localId ? 'You are' : who(id) + ' is'} handed a Penalty Dud: ${item.name}. ${item.commentaryLine}`);
+    if (id === engine.localId) audio.trombone();
   });
 
-  engine.on('banter', ({ who, name: n, text }) => {
-    hud.banter({ name: n, text, color: COLORS[who] });
-    S.react(who, 'nod');
+  engine.on('banter', ({ who: id, name, text, kind }) => {
+    hud.banter({ name: id === engine.localId ? 'YOU' : name, text, color: colors[id] });
+    S.react(id, kind === 'emote' ? 'hop' : 'nod');
+    if (kind === 'emote') audio.blip();
   });
 
-  engine.on('mood', ({ who, mood }) => {
-    S.setMood(who, mood);
+  engine.on('mood', ({ who: id, mood }) => {
+    S.setMood(id, mood);
     if (engine.contenders.length) hud.sync(engine);
   });
 
+  engine.on('away', ({ who: id, away }) => {
+    if (away) hud.toast(`${engine.contenders[id].name} left the room. Their seat sits out.`);
+    S.setStatus(id, away ? 'AWAY' : '');
+    hud.sync(engine);
+  });
+
+  // ---------- the Oracle ----------
+  engine.on('oracle', (d) => {
+    const or = engine.oracle;
+    const mine = or.player === engine.localId;
+    switch (d.stage) {
+      case 'intro':
+        setScreen('game');
+        S.clearLot();
+        S.setOracle(true);
+        S.setSign('QUIZ', true);
+        S.focusUnit(or.player, false);
+        hud.setCamLabel(CAM_LABELS.focus);
+        audio.siren();
+        audio.setTension(0.7);
+        document.body.dataset.tension = '1';
+        hud.bigCall('Oracle Intervention', 'crate');
+        hud.call(`Oracle intervention. ${mine ? 'You have' : who(or.player) + ' has'} been chosen for a steal question.`);
+        oracleBeat = 0;
+        break;
+      case 'question':
+        if (d.n === 2) {
+          S.focusUnit(or.player, true);
+          audio.setTension(1);
+          document.body.dataset.tension = '2';
+          hud.call('Double or nothing. One more question for the whole lot.');
+        } else {
+          hud.call(`${mine ? 'Your' : who(or.player) + "'s"} question. Fifteen seconds.`);
+        }
+        oracleBeat = 0;
+        break;
+      case 'answer':
+        if (d.right) { audio.chime(); S.react(or.player, 'hop'); } else { audio.buzzer(); S.react(or.player, 'shake'); }
+        hud.call(d.right ? 'Correct.' : 'That is wrong.');
+        break;
+      case 'pick':
+        hud.call(`${mine ? 'Choose' : who(or.player, true) + ' chooses'} a lot. Half price, straight from a rival's lineup.`);
+        break;
+      case 'gamble':
+        hud.call(`${d.entry ? d.entry.item.name : 'The lot'} for $${d.cost}. Lock it in, or double or nothing?`);
+        break;
+      case 'risk':
+        hud.bigCall('Double or nothing', 'sold');
+        audio.alarm();
+        break;
+      case 'steal':
+        S.flyItem(d.taken.item, d.victim, d.thief);
+        S.heistFlash(d.thief, d.victim);
+        if (d.free) audio.fanfare(); else { audio.slam(); setTimeout(() => audio.register(), 240); }
+        syncCash();
+        hud.bigCall(d.free ? 'Stolen for free!' : 'Stolen!', 'sold');
+        hud.call(`${d.thief === engine.localId ? 'You take' : who(d.thief) + ' takes'} ${d.taken.item.name} from ${who(d.victim)} ${d.free ? 'for nothing' : `for $${d.cost}`}.`);
+        break;
+      case 'fail':
+        if (d.why === 'forfeit' || d.why === 'timeout') audio.trombone();
+        hud.bigCall(d.why === 'forfeit' ? 'Forfeited' : 'No steal', 'nosale');
+        hud.call(d.why === 'forfeit' ? 'The gamble fails. The steal is gone.' : 'The Oracle withdraws. No steal.');
+        break;
+      case 'end':
+        S.setOracle(false);
+        S.setSign(`$${engine.options.budget}`);
+        setCam('wide');
+        audio.setTension(0);
+        document.body.dataset.tension = '0';
+        break;
+      default:
+        break;
+    }
+    hud.sync(engine);
+    hud.renderOracle(engine);
+  });
+
+  // ---------- endgame ----------
   engine.on('vaultOpen', () => {
     setScreen('endgame');
+    hud.hideOracle();
     S.clearLot();
     S.setPrice(0);
     S.setSign('LOCK');
@@ -415,13 +709,13 @@ function wireEngine() {
     $('#board').querySelector('.scroll-x').scrollTop = 0;
   });
 
-  engine.on('vaultLock', ({ who, entry }) => {
+  engine.on('vaultLock', ({ who: id, entry }) => {
     audio.vaultLock();
-    S.vaultFlash(who);
+    S.vaultFlash(id);
     syncCash();
     hud.sync(engine);
     hud.renderBoard(engine);
-    hud.call(`${who === HUMAN_ID ? 'You lock' : name(who) + ' locks'} ${entry.item.name} in the vault.`);
+    hud.call(`${id === engine.localId ? 'You lock' : who(id) + ' locks'} ${entry.item.name} in the vault.`);
   });
 
   engine.on('heistOpen', () => {
@@ -439,11 +733,12 @@ function wireEngine() {
     audio.alarm();
     setTimeout(() => audio.register(), 380);
     S.heistFlash(thief, victim);
+    S.flyItem(taken.item, victim, thief);
     syncCash();
     hud.sync(engine);
     hud.renderBoard(engine);
     hud.bigCall('Heist!', 'sold');
-    hud.call(`${thief === HUMAN_ID ? 'You steal' : name(thief) + ' steals'} ${taken.item.name} from ${victim === HUMAN_ID ? 'you' : name(victim)} for $${cost}.`);
+    hud.call(`${thief === engine.localId ? 'You steal' : who(thief) + ' steals'} ${taken.item.name} from ${who(victim)} for $${cost}.`);
   });
 
   engine.on('heistClosed', () => {
@@ -471,21 +766,21 @@ function wireEngine() {
 }
 
 function finishVerdict() {
-  if (verdict.done) return;
+  if (verdict.done || !engine.results) return;
   const results = engine.results;
   for (let i = verdict.step; i < verdict.total; i++) hud.revealStep(i, true);
   verdict.step = verdict.total;
   verdict.active = false;
   verdict.done = true;
   $('#btn-verdict-skip').hidden = true;
-  hud.showWinner(results);
+  hud.showWinner(results, engine);
   S.showdown(results.ranking);
   hud.setCamLabel(CAM_LABELS.podium);
-  const rank = results.players[HUMAN_ID].rank;
-  if (rank === 1) audio.fanfare(); else if (rank === 4) audio.trombone(); else audio.register();
+  const rank = results.players[engine.localId].rank;
+  if (rank === 1) audio.fanfare(); else if (rank === results.players.length) audio.trombone(); else audio.register();
   hud.call(rank === 1 ? 'The winner of tonight\'s draft: you.' : `The winner of tonight's draft: ${results.players[results.winner].name}.`);
   refreshAir();
-  if (!debug.auto) $('#btn-again').focus({ preventScroll: true });
+  if (!debug.auto) (role === 'client' ? $('#btn-copy') : $('#btn-again')).focus({ preventScroll: true });
 }
 
 function copyScorecard() {
@@ -509,7 +804,8 @@ function copyScorecard() {
 
 // ---------- input ----------
 function wireInput(guide, drawer) {
-  $('#btn-start').addEventListener('click', startMatch);
+  $('#btn-start').addEventListener('click', startSolo);
+  $('#btn-friends').addEventListener('click', () => { audio.unlock(); lobbyView.open(); });
   $('#btn-how').addEventListener('click', () => drawer.open());
   $('#btn-help').addEventListener('click', () => drawer.toggle());
   $('#btn-bid1').addEventListener('click', () => doBid(1));
@@ -518,9 +814,10 @@ function wireInput(guide, drawer) {
   $('#btn-pause').addEventListener('click', togglePause);
   $('#btn-resume').addEventListener('click', togglePause);
   $('#btn-quit').addEventListener('click', quitToTitle);
+  $('#btn-lost').addEventListener('click', () => { $('#lost').hidden = true; toTitle(); $('#btn-start').focus({ preventScroll: true }); });
   $('#btn-mute').addEventListener('click', toggleMute);
   $('#btn-ff').addEventListener('click', toggleFF);
-  $('#btn-board-done').addEventListener('click', () => { audio.blip(); engine.skip(); });
+  $('#btn-board-done').addEventListener('click', () => { audio.blip(); act.done(); if (role === 'client') hud.toast('Waiting for the rest of the room.'); });
   $('#btn-verdict-skip').addEventListener('click', finishVerdict);
   $('#btn-again').addEventListener('click', startMatch);
   $('#btn-title').addEventListener('click', quitToTitle);
@@ -543,28 +840,35 @@ function wireInput(guide, drawer) {
       settings.budget = Number(r.value) === 50 ? 50 : 20;
       store.set('budget', settings.budget);
       applyModes();
-      S.setContenders(defaultUnits());
+      S.setContenders(defaultUnits(), 0);
     });
   }
-  $('#allin').addEventListener('change', (e) => {
-    settings.allIn = e.target.checked;
-    store.set('allIn', settings.allIn);
-  });
+  $('#allin').addEventListener('change', (e) => { settings.allIn = e.target.checked; store.set('allIn', settings.allIn); applyModes(); });
+  $('#marathon').addEventListener('change', (e) => { settings.marathon = e.target.checked; store.set('marathon', settings.marathon); applyModes(); });
 
-  hud.onBoardAction = (act, owner, itemId) => {
+  hud.onBoardAction = (kind, owner, itemId) => {
     audio.unlock();
     if (isPaused()) return;
-    const ok = act === 'vault' ? engine.humanVault(itemId) : engine.humanHeist(owner, itemId);
+    const ok = kind === 'vault' ? act.vault(itemId) : act.heist(owner, itemId);
     if (!ok) audio.denied();
   };
+  hud.onOracle = (kind, a, b) => {
+    audio.unlock();
+    if (kind === 'answer') act.answer(a);
+    else if (kind === 'pick') act.pick(a, b);
+    else if (kind === 'gamble') act.gamble(a);
+  };
+  hud.onEmote = (k) => { audio.unlock(); act.emote(k); };
 
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
     const tag = t && t.tagName;
+    const typing = tag === 'TEXTAREA' || (tag === 'INPUT' && !['checkbox', 'radio', 'range', 'button'].includes(t.type));
+    if (typing) return;
     const k = e.key;
     if (k === '?') { e.preventDefault(); drawer.toggle(); return; }
-    if (drawer.isOpen || guide.active) return;
+    if (drawer.isOpen || guide.active || (lobbyView && lobbyView.isOpen)) return;
     if (k === 'Escape') { if (inMatch()) { e.preventDefault(); togglePause(); } return; }
     if (pauseReasons.has('user')) return;
     if (k === 'm' || k === 'M') { toggleMute(); return; }
@@ -572,41 +876,48 @@ function wireInput(guide, drawer) {
     const onControl = tag === 'BUTTON' || tag === 'INPUT' || tag === 'A' || tag === 'SELECT';
     const onAction = !!(t && t.closest && t.closest('#actions'));
     if (screen === 'title') {
-      if (k === 'Enter' && !onControl) { e.preventDefault(); startMatch(); }
+      if (k === 'Enter' && !onControl) { e.preventDefault(); if (lobby.active) lobbyView.open(); else startSolo(); }
       return;
     }
     if (screen === 'game') {
+      const or = engine.oracle;
+      if (engine.phase === PHASE.ORACLE) {
+        if (or.player === engine.localId && (or.stage === 'q1' || or.stage === 'q2') && k >= '1' && k <= '4') { e.preventDefault(); if (!e.repeat) act.answer(Number(k) - 1); }
+        return;
+      }
       if (k === ' ' || k === 'b' || k === 'B') {
         if (k === ' ' && onControl && !onAction) return;
         e.preventDefault();
         if (!e.repeat) doBid(1);
       } else if (k === 'j' || k === 'J') { e.preventDefault(); if (!e.repeat) doBid(2); }
       else if (k === 'p' || k === 'P') { e.preventDefault(); if (!e.repeat) doPass(); }
-      else if (k === 'Enter' && (!onControl || onAction)) { e.preventDefault(); if (!e.repeat) engine.skip(); }
+      else if (k === 'Enter' && (!onControl || onAction)) { e.preventDefault(); if (!e.repeat && role === 'solo') engine.skip(); }
       return;
     }
     if (screen === 'endgame') {
-      if (k === 'Enter' && !onControl) { e.preventDefault(); engine.skip(); }
+      if (k === 'Enter' && !onControl) { e.preventDefault(); act.done(); }
       return;
     }
     if (screen === 'verdict' && k === 'Enter' && !onControl) {
       e.preventDefault();
-      if (verdict.done) startMatch(); else finishVerdict();
+      if (!verdict.done) finishVerdict(); else if (role !== 'client') startMatch();
     }
   });
 
   document.addEventListener('visibilitychange', () => {
-    setPaused('hidden', document.hidden && inMatch());
-    last = performance.now();
+    setPaused('hidden', document.hidden && inMatch() && role === 'solo');
+    lastStep = performance.now();
+    lastFrame = lastStep;
   });
   // Browsers only allow audio after a gesture.
   window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
+  window.addEventListener('pagehide', () => { if (lobby.active) lobby.leave(true); });
 }
 
-// ---------- frame loop ----------
+// ---------- the loop ----------
 function matchSpeed() {
   let s = debug.speed;
-  if (settings.ff && [PHASE.LOT_INTRO, PHASE.BIDDING, PHASE.SOLD].includes(engine.phase) && engine.humanState().spectating) s *= 2.5;
+  if (role === 'solo' && settings.ff && [PHASE.LOT_INTRO, PHASE.BIDDING, PHASE.SOLD].includes(engine.phase) && engine.humanState().spectating) s *= 2.5;
   return s;
 }
 
@@ -622,24 +933,49 @@ function tickClockSounds() {
   }
 }
 
+// A heartbeat under every Oracle question: quicker for double or nothing, with a tick
+// for each of the last five seconds.
+function oracleSounds(dt) {
+  const or = engine.oracle;
+  if (engine.phase !== PHASE.ORACLE || (or.stage !== 'q1' && or.stage !== 'q2')) return;
+  oracleBeat -= dt;
+  if (oracleBeat > 0) return;
+  oracleBeat = or.stage === 'q2' ? 0.55 : 1;
+  audio.heartbeat();
+  if (or.t <= 5) audio.tick(or.t <= 2);
+}
+
+// Test and demo helper: plays the local seat with a simple policy.
 function autopilot() {
+  const me = engine.me;
+  if (!me) return;
   if (engine.phase === PHASE.BIDDING) {
     const hs = engine.humanState();
-    if (hs.canBid1 && engine.currentBid < 3 && Math.random() < 0.04) engine.humanBid(1);
-  } else if ((engine.phase === PHASE.VAULT || engine.phase === PHASE.HEIST) && engine.phaseClock > 1) {
-    engine.skip();
+    if (hs.canBid1 && engine.currentBid < 3 && Math.random() < 0.04) act.bid(1);
+  } else if (engine.phase === PHASE.VAULT || engine.phase === PHASE.HEIST) {
+    if (engine.phaseClock > 1 && autoDone !== engine.phase) { autoDone = engine.phase; act.done(); }
+  } else if (engine.phase === PHASE.ORACLE && engine.oracle.player === me.id && Math.random() < 0.05) {
+    const or = engine.oracle;
+    if (or.stage === 'q1' || or.stage === 'q2') act.answer(Math.floor(Math.random() * 4));
+    else if (or.stage === 'pick') { const o = or.optionsFor(me)[0]; if (o) act.pick(o.victim.id, o.entry.item.id); }
+    else if (or.stage === 'gamble') act.gamble(false);
   }
 }
 
-function frame(now) {
-  requestAnimationFrame(frame);
-  const dt = Math.min(0.25, Math.max(0, (now - last) / 1000));
-  last = now;
-  seconds += dt;
+// Advances the match by real time. Called from the frame loop, and from a timer when the
+// tab is hidden, because a host's room must keep running while they look at another tab.
+function advance(now) {
+  const cap = document.hidden ? 1.5 : 0.25;
+  const dt = Math.min(cap, Math.max(0, (now - lastStep) / 1000));
+  lastStep = now;
+  if (!inMatch() || isPaused()) return;
 
-  if (inMatch() && !isPaused()) {
-    const speed = matchSpeed();
-    acc += dt * speed;
+  if (role === 'client') {
+    if (debug.auto) autopilot();
+    engine.update(dt);
+    tickClockSounds();
+  } else {
+    acc += dt * matchSpeed();
     let n = 0;
     while (acc >= STEP && n < 90) {
       if (debug.auto) autopilot();
@@ -649,25 +985,41 @@ function frame(now) {
       n++;
     }
     if (n === 90) acc = 0;
-    if (camReturn > 0) {
-      camReturn -= dt * speed;
-      if (camReturn <= 0 && engine.phase === PHASE.SOLD) setCam('wide');
-    }
-    if (verdict.active) {
-      verdict.timer -= dt * debug.speed;
-      if (verdict.timer <= 0) {
-        if (verdict.step < verdict.total) {
-          hud.revealStep(verdict.step);
-          audio.countUp(verdict.step);
-          verdict.step++;
-          verdict.timer = verdict.step === verdict.total ? 1.3 : 1.0;
-        } else {
-          finishVerdict();
-        }
+    if (role === 'host') {
+      tickAcc += dt;
+      if (tickAcc >= 0.25) {
+        tickAcc = 0;
+        lobby.broadcast({ t: WIRE.TIMER_TICK, ck: engine.clock, pt: engine.phaseT, ot: engine.oracle.t });
       }
     }
   }
+  oracleSounds(dt);
 
+  if (camReturn > 0) {
+    camReturn -= dt;
+    if (camReturn <= 0 && engine.phase === PHASE.SOLD) setCam('wide');
+  }
+  if (verdict.active) {
+    verdict.timer -= dt * debug.speed;
+    if (verdict.timer <= 0) {
+      if (verdict.step < verdict.total) {
+        hud.revealStep(verdict.step);
+        audio.countUp(verdict.step);
+        verdict.step++;
+        verdict.timer = verdict.step === verdict.total ? 1.3 : 1.0;
+      } else {
+        finishVerdict();
+      }
+    }
+  }
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.25, Math.max(0, (now - lastFrame) / 1000));
+  lastFrame = now;
+  seconds += dt;
+  advance(now);
   heroAttract(dt);
   hud.frame(engine, seconds);
   logo.speed = screen === 'title' ? 1 : 0;
@@ -703,8 +1055,8 @@ async function boot() {
   const guide = new Guide({
     getScreen: () => screen,
     ensureScreen: async (want) => {
-      if (want === 'game' && screen === 'title') {
-        startMatch();
+      if (want === 'game' && screen === 'title' && !lobby.active) {
+        startSolo();
         // Run the opening up to the first live lot so every control has something to show.
         for (let i = 0; i < 2000 && engine.phase !== PHASE.BIDDING; i++) engine.update(1 / 30);
         acc = 0;
@@ -722,7 +1074,19 @@ async function boot() {
     onClose: () => setPaused('drawer', false),
     onTour: (mode) => guide.start(mode),
   });
+  lobbyView = new LobbyView({
+    lobby,
+    loadName: () => store.get('name', ''),
+    saveName: (n) => store.set('name', String(n).slice(0, 14)),
+    colorsFor,
+    summary: modeSummary,
+    onStart: startRoom,
+    onOpen: () => {},
+    onClose: () => {},
+    toast: (t) => hud.toast(t),
+  });
 
+  setRole('solo');
   applyTheme();
   applySound();
   $('#btn-ff').setAttribute('aria-pressed', String(settings.ff));
@@ -730,9 +1094,15 @@ async function boot() {
   wireEngine();
   wireInput(guide, drawer);
 
+  media.onChange((item) => {
+    hud.refreshMedia(item);
+    S.refreshLot(item);
+    if (hero.item && hero.item.id === item.id && screen === 'title') heroPhoto();
+  });
+
   try {
     const mod = await import('./render/stage3d.js');
-    stage = new mod.Stage3D($('#stage'));
+    stage = new mod.Stage3D($('#stage'), { media });
     stage.onContextLost = () => showNoSignal('The graphics context was lost. The auction carries on at the desk.');
   } catch (err) {
     console.warn('[bidlock] 3D studio unavailable:', err);
@@ -740,17 +1110,30 @@ async function boot() {
     showNoSignal('No 3D feed here (WebGL or the Three.js CDN is blocked). The auction still runs at the desk.');
   }
 
-  S.setContenders(defaultUnits());
+  S.setContenders(defaultUnits(), 0);
   applyTheme();
   applyModes();
   setScreen('title');
   setCam('title');
   showHero(0);
   hero.touched = -99;
-  requestAnimationFrame((t) => { last = t; frame(t); });
-  if (params.get('guide') !== 'off' && !debug.auto) guide.maybeInvite();
+  // One request fetches the photograph for the first lot of every category.
+  media.prefetch(CATEGORIES.map((c) => c.items[0]));
+  const t0 = performance.now();
+  lastStep = t0;
+  lastFrame = t0;
+  requestAnimationFrame(frame);
+  setInterval(() => { if (document.hidden && role !== 'solo') advance(performance.now()); }, 250);
 
-  window.__bidlock = { engine, settings, guide, drawer, get stage() { return stage; }, get screen() { return screen; }, startMatch, finishVerdict };
+  const room = params.get('room');
+  if (room) lobbyView.open(room);
+  else if (params.get('guide') !== 'off' && !debug.auto) guide.maybeInvite();
+
+  window.__bidlock = {
+    engine, settings, guide, drawer, lobby, media, act,
+    get stage() { return stage; }, get screen() { return screen; }, get role() { return role; },
+    startMatch: startSolo, startRoom, finishVerdict,
+  };
 }
 
 boot().catch((err) => {

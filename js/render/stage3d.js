@@ -133,209 +133,58 @@ class ParticlePool {
   }
 }
 
-// ---------- lot sculptures ----------
-function lotMaterials(item, look) {
-  const c1 = new THREE.Color(item.colorPalette[0]);
-  const c2 = new THREE.Color(item.colorPalette[1]);
-  const grey = new THREE.Color(0x6f7378);
-  const gold = new THREE.Color(0xffc94d);
-  const dark = new THREE.MeshStandardMaterial({ color: 0x17191c, roughness: 0.55, metalness: 0.5 });
-  // During the auction the studio dresses a lot by its hype. Only a revealed crate shows its true grade.
-  const score = look === 'true' ? item.trueValue : item.baseAppeal;
-  if (look === 'true' && item.tier === 'CURSED') {
-    return {
-      main: new THREE.MeshStandardMaterial({ color: c1.lerp(new THREE.Color(0x2a1f33), 0.55), roughness: 0.75, metalness: 0.1, emissive: 0x1d4a1d, emissiveIntensity: 0.7 }),
-      alt: new THREE.MeshStandardMaterial({ color: 0x7fbf5a, roughness: 0.6, emissive: 0x2f6f1f, emissiveIntensity: 0.9 }),
-      dark,
-    };
+// ---------- the winner's crown ----------
+function buildCrown(g, m) {
+  add(g, new THREE.CylinderGeometry(0.5, 0.44, 0.32, 24), m.main, 0, -0.2, 0);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * TAU;
+    add(g, new THREE.ConeGeometry(0.13, 0.46, 4), m.main, Math.cos(a) * 0.4, 0.18, Math.sin(a) * 0.4);
+    add(g, new THREE.SphereGeometry(0.075, 10, 8), m.alt, Math.cos(a) * 0.4, 0.45, Math.sin(a) * 0.4);
   }
-  if (score >= 80) {
-    return {
-      main: new THREE.MeshStandardMaterial({ color: c1.lerp(gold, 0.3), roughness: 0.2, metalness: 1 }),
-      alt: new THREE.MeshStandardMaterial({ color: gold, roughness: 0.24, metalness: 1 }),
-      dark,
-    };
-  }
-  if (score >= 60) {
-    return {
-      main: new THREE.MeshStandardMaterial({ color: c1, roughness: 0.3, metalness: 0.8 }),
-      alt: new THREE.MeshStandardMaterial({ color: c2, roughness: 0.35, metalness: 0.6 }),
-      dark,
-    };
-  }
-  if (score >= 40) {
-    return {
-      main: new THREE.MeshStandardMaterial({ color: c1, roughness: 0.5, metalness: 0.3 }),
-      alt: new THREE.MeshStandardMaterial({ color: c2, roughness: 0.6, metalness: 0.2 }),
-      dark,
-    };
-  }
-  return {
-    main: new THREE.MeshStandardMaterial({ color: c1.lerp(grey, 0.35), roughness: 0.92, metalness: 0 }),
-    alt: new THREE.MeshStandardMaterial({ color: c2.lerp(grey, 0.35), roughness: 0.92, metalness: 0 }),
-    dark,
-  };
+  add(g, new THREE.TorusGeometry(0.47, 0.04, 8, 32).rotateX(Math.PI / 2), m.alt, 0, -0.34, 0);
 }
 
-function shapeGeo(points, depth) {
-  const s = new THREE.Shape();
-  points.forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
-  s.closePath();
-  const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false });
-  g.translate(0, 0, -depth / 2);
-  return g;
-}
-
-const ICONS = {
-  crown(g, m) {
-    add(g, new THREE.CylinderGeometry(0.5, 0.44, 0.32, 24), m.main, 0, -0.2, 0);
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * TAU;
-      add(g, new THREE.ConeGeometry(0.13, 0.46, 4), m.main, Math.cos(a) * 0.4, 0.18, Math.sin(a) * 0.4);
-      add(g, new THREE.SphereGeometry(0.075, 10, 8), m.alt, Math.cos(a) * 0.4, 0.45, Math.sin(a) * 0.4);
-    }
-    add(g, new THREE.TorusGeometry(0.47, 0.04, 8, 32).rotateX(Math.PI / 2), m.alt, 0, -0.34, 0);
-  },
-  play(g, m) {
-    add(g, new THREE.BoxGeometry(1.25, 0.84, 0.3), m.main);
-    add(g, new THREE.CylinderGeometry(0.27, 0.27, 0.12, 3).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), m.alt, 0.03, 0, 0.17);
-  },
-  car(g, m) {
-    add(g, new THREE.BoxGeometry(1.45, 0.22, 0.62), m.main, 0, -0.05, 0);
-    add(g, new THREE.BoxGeometry(0.66, 0.2, 0.5), m.alt, -0.06, 0.15, 0);
-    add(g, new THREE.BoxGeometry(0.08, 0.14, 0.62), m.main, -0.68, 0.16, 0);
-    for (const x of [-0.46, 0.46]) for (const z of [-0.31, 0.31]) add(g, new THREE.CylinderGeometry(0.16, 0.16, 0.1, 16).rotateX(Math.PI / 2), m.dark, x, -0.16, z);
-  },
-  truck(g, m) {
-    add(g, new THREE.BoxGeometry(1.45, 0.42, 0.68), m.main, 0, 0, 0);
-    add(g, new THREE.BoxGeometry(0.62, 0.3, 0.62), m.alt, 0.1, 0.34, 0);
-    for (const x of [-0.46, 0.46]) for (const z of [-0.36, 0.36]) add(g, new THREE.CylinderGeometry(0.22, 0.22, 0.12, 16).rotateX(Math.PI / 2), m.dark, x, -0.24, z);
-  },
-  trolley(g, m) {
-    const wire = m.main.clone();
-    wire.wireframe = true;
-    add(g, new THREE.BoxGeometry(0.95, 0.5, 0.62, 4, 3, 3), wire, 0, 0.12, 0);
-    add(g, new THREE.BoxGeometry(0.95, 0.04, 0.62), m.main, 0, -0.14, 0);
-    add(g, new THREE.CylinderGeometry(0.03, 0.03, 0.62, 8).rotateX(Math.PI / 2), m.main, -0.56, 0.5, 0);
-    add(g, new THREE.CylinderGeometry(0.09, 0.09, 0.55, 12).rotateZ(Math.PI / 2), m.alt, 0, 0.08, 0);
-    for (const x of [-0.4, 0.4]) for (const z of [-0.26, 0.26]) add(g, new THREE.SphereGeometry(0.08, 10, 8), m.dark, x, -0.26, z);
-  },
-  wheel(g, m) {
-    add(g, new THREE.TorusGeometry(0.42, 0.06, 10, 32), m.dark, 0, -0.2, 0);
-    add(g, new THREE.BoxGeometry(0.8, 0.03, 0.03), m.main, 0, -0.2, 0);
-    add(g, new THREE.BoxGeometry(0.03, 0.8, 0.03), m.main, 0, -0.2, 0);
-    add(g, new THREE.CylinderGeometry(0.03, 0.03, 0.62, 8), m.main, 0, 0.42, 0);
-    add(g, new THREE.BoxGeometry(0.32, 0.08, 0.16), m.alt, 0, 0.75, 0);
-  },
-  bolt(g, m) {
-    add(g, shapeGeo([[0.1, 0.85], [-0.38, -0.08], [-0.04, -0.08], [-0.2, -0.85], [0.38, 0.14], [0.04, 0.14], [0.3, 0.85]], 0.22), m.main);
-    add(g, new THREE.TorusGeometry(0.7, 0.025, 8, 40), m.alt);
-  },
-  eye(g, m) {
-    const ball = add(g, new THREE.SphereGeometry(0.58, 28, 18), m.main);
-    ball.scale.set(1, 0.6, 0.55);
-    const iris = add(g, new THREE.SphereGeometry(0.26, 20, 14), m.alt, 0, 0, 0.2);
-    iris.scale.z = 0.6;
-    add(g, new THREE.SphereGeometry(0.12, 14, 10), m.dark, 0, 0, 0.32);
-  },
-  clock(g, m) {
-    add(g, new THREE.CylinderGeometry(0.6, 0.6, 0.14, 36).rotateX(Math.PI / 2), m.main);
-    add(g, new THREE.TorusGeometry(0.6, 0.055, 8, 36), m.alt);
-    add(g, new THREE.BoxGeometry(0.045, 0.4, 0.03), m.dark, 0, 0.18, 0.09);
-    add(g, new THREE.BoxGeometry(0.28, 0.045, 0.03), m.dark, 0.13, 0, 0.09);
-    add(g, new THREE.CylinderGeometry(0.07, 0.07, 0.16, 12), m.alt, 0, 0.72, 0);
-  },
-  house(g, m) {
-    add(g, new THREE.BoxGeometry(1.0, 0.6, 0.8), m.main, 0, -0.2, 0);
-    add(g, new THREE.ConeGeometry(0.86, 0.46, 4).rotateY(Math.PI / 4), m.alt, 0, 0.33, 0);
-    add(g, new THREE.BoxGeometry(0.18, 0.3, 0.03), m.dark, 0, -0.35, 0.41);
-    add(g, new THREE.BoxGeometry(0.12, 0.3, 0.12), m.alt, 0.28, 0.4, 0);
-  },
-  tower(g, m) {
-    add(g, new THREE.BoxGeometry(1.25, 0.12, 0.62), m.dark, 0, -0.62, 0);
-    add(g, new THREE.CylinderGeometry(0.3, 0.36, 1.1, 10), m.main, -0.18, -0.02, 0);
-    add(g, new THREE.ConeGeometry(0.4, 0.42, 10), m.alt, -0.18, 0.74, 0);
-    add(g, new THREE.CylinderGeometry(0.2, 0.24, 0.7, 8), m.main, 0.36, -0.22, 0);
-    add(g, new THREE.ConeGeometry(0.28, 0.3, 8), m.alt, 0.36, 0.28, 0);
-  },
-  box(g, m) {
-    add(g, new THREE.BoxGeometry(0.92, 0.66, 0.76), m.main, 0, -0.1, 0);
-    add(g, new THREE.BoxGeometry(0.94, 0.68, 0.1), m.alt, 0, -0.1, 0);
-    add(g, new THREE.BoxGeometry(0.46, 0.03, 0.76), m.main, -0.4, 0.32, 0).rotation.z = 0.7;
-    add(g, new THREE.BoxGeometry(0.46, 0.03, 0.76), m.main, 0.4, 0.32, 0).rotation.z = -0.7;
-  },
-  shield(g, m) {
-    add(g, shapeGeo([[-0.52, 0.6], [0.52, 0.6], [0.52, 0.05], [0.3, -0.45], [0, -0.75], [-0.3, -0.45], [-0.52, 0.05]], 0.16), m.main);
-    add(g, shapeGeo([[-0.34, 0.42], [0.34, 0.42], [0.34, 0.06], [0, -0.45], [-0.34, 0.06]], 0.22), m.alt);
-    add(g, new THREE.SphereGeometry(0.12, 14, 10), m.dark, 0, 0.12, 0.12);
-  },
-  figure(g, m) {
-    add(g, new THREE.CapsuleGeometry(0.26, 0.5, 4, 12), m.main, 0, -0.25, 0);
-    add(g, new THREE.BoxGeometry(0.9, 0.24, 0.38), m.main, 0, 0.14, 0);
-    add(g, new THREE.SphereGeometry(0.2, 18, 12), m.alt, 0, 0.52, 0);
-    add(g, new THREE.BoxGeometry(0.24, 0.05, 0.1), m.dark, 0, 0.55, 0.17);
-  },
-  gem(g, m) {
-    const oct = add(g, new THREE.OctahedronGeometry(0.58, 0), m.main, 0, 0.05, 0);
-    oct.scale.y = 1.2;
-    m.main.flatShading = true;
-    add(g, new THREE.CylinderGeometry(0.3, 0.38, 0.1, 20), m.dark, 0, -0.75, 0);
-    add(g, new THREE.TorusGeometry(0.62, 0.03, 8, 36).rotateX(Math.PI / 2), m.alt, 0, 0.05, 0);
-  },
-  ring(g, m) {
-    add(g, new THREE.TorusGeometry(0.5, 0.12, 14, 40), m.main, 0, -0.1, 0);
-    add(g, new THREE.CylinderGeometry(0.32, 0.32, 0.14, 28).rotateX(Math.PI / 2), m.alt, 0, 0.42, 0);
-    add(g, new THREE.BoxGeometry(0.03, 0.2, 0.03), m.dark, 0, 0.48, 0.08);
-  },
-  shoe(g, m) {
-    add(g, new THREE.BoxGeometry(1.12, 0.12, 0.42), m.alt, 0, -0.34, 0);
-    const up = add(g, new THREE.SphereGeometry(0.3, 18, 12), m.main, -0.08, -0.12, 0);
-    up.scale.set(1.5, 0.8, 0.64);
-    const toe = add(g, new THREE.SphereGeometry(0.2, 14, 10), m.main, 0.38, -0.2, 0);
-    toe.scale.set(1.1, 0.8, 0.95);
-    add(g, new THREE.CylinderGeometry(0.18, 0.2, 0.28, 14), m.main, -0.38, 0.08, 0);
-  },
-  chip(g, m) {
-    add(g, new THREE.BoxGeometry(0.95, 0.14, 0.95), m.dark);
-    add(g, new THREE.BoxGeometry(0.56, 0.08, 0.56), m.main, 0, 0.1, 0);
-    add(g, new THREE.BoxGeometry(0.22, 0.1, 0.22), m.alt, 0, 0.15, 0);
-    for (let i = 0; i < 5; i++) {
-      const o = -0.36 + i * 0.18;
-      add(g, new THREE.BoxGeometry(0.07, 0.05, 0.16), m.alt, o, -0.02, 0.54);
-      add(g, new THREE.BoxGeometry(0.07, 0.05, 0.16), m.alt, o, -0.02, -0.54);
-      add(g, new THREE.BoxGeometry(0.16, 0.05, 0.07), m.alt, 0.54, -0.02, o);
-      add(g, new THREE.BoxGeometry(0.16, 0.05, 0.07), m.alt, -0.54, -0.02, o);
-    }
-    g.rotation.x = 0.55;
-  },
-  rocket(g, m) {
-    add(g, new THREE.CylinderGeometry(0.2, 0.24, 0.9, 18), m.main);
-    add(g, new THREE.ConeGeometry(0.2, 0.42, 18), m.alt, 0, 0.66, 0);
-    add(g, new THREE.ConeGeometry(0.17, 0.24, 14).rotateX(Math.PI), m.dark, 0, -0.55, 0);
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * TAU;
-      const fin = add(g, new THREE.BoxGeometry(0.04, 0.32, 0.3), m.alt, Math.cos(a) * 0.3, -0.32, Math.sin(a) * 0.3);
-      fin.rotation.y = -a + Math.PI / 2;
-    }
-    g.rotation.z = -0.3;
-  },
-  phone(g, m) {
-    add(g, new THREE.BoxGeometry(0.56, 1.05, 0.14), m.main);
-    add(g, new THREE.BoxGeometry(0.42, 0.36, 0.03), m.alt, 0, 0.24, 0.07);
-    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) add(g, new THREE.BoxGeometry(0.1, 0.07, 0.03), m.dark, -0.14 + c * 0.14, -0.08 - r * 0.13, 0.07);
-    add(g, new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8), m.dark, 0.18, 0.62, 0);
-  },
-  brick(g, m) {
-    add(g, new THREE.BoxGeometry(1.12, 0.4, 0.54), m.main);
-    for (const x of [-0.3, 0.3]) add(g, new THREE.CylinderGeometry(0.12, 0.12, 0.08, 16), m.alt, x, 0.24, 0);
-    add(g, new THREE.BoxGeometry(1.14, 0.03, 0.56), m.dark, 0, 0, 0);
-  },
-};
+// ---------- rim light around the photo frame ----------
+// A band just outside the gold frame, in the current price colour, with two highlights
+// that travel round it. They run faster as the auctioneer counts down.
+const RIM_VERT = `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+const RIM_FRAG = `
+uniform vec3 uColor;
+uniform float uTime;
+uniform float uHeat;
+uniform vec2 uSize;
+varying vec2 vUv;
+void main() {
+  vec2 p = (vUv - 0.5) * uSize;
+  vec2 d = abs(p) - (uSize * 0.5 - 0.17);
+  float dist = length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+  float band = smoothstep(0.17, 0.0, dist) * step(0.0, dist);
+  float ang = atan(p.y, p.x);
+  float speed = 1.1 + uHeat;
+  float sweep = pow(max(0.0, cos(ang - uTime * speed)), 12.0) + pow(max(0.0, cos(ang + 3.14159 - uTime * speed)), 12.0);
+  float a = band * (0.3 + 1.6 * sweep);
+  gl_FragColor = vec4(uColor * a, a);
+}`;
 
 // ---------- the stage ----------
 export class Stage3D {
-  constructor(container) {
+  constructor(container, { media = null } = {}) {
     this.container = container;
+    this.media = media;
+    this.lotItem = null;
+    this.lotMystery = false;
+    this.flights = [];
+    this.pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+    this.flipT = 1;
+    this.kick = 0;
+    this.yaw = 0;
+    this.oracleOn = false;
+    this.focus = null;
     this.t = 0;
     this.units = [];
     this.icon = null;
@@ -379,6 +228,13 @@ export class Stage3D {
     this._buildLights();
     this._buildPedestal();
     this._buildGavel();
+    this.keepMats = new Set([this.setMat, this.brass, this.frameBackMat, this.glassMat]);
+    container.addEventListener('pointermove', (e) => {
+      const r = container.getBoundingClientRect();
+      this.pointer.tx = clamp(((e.clientX - r.left) / Math.max(1, r.width)) * 2 - 1, -1, 1);
+      this.pointer.ty = clamp(((e.clientY - r.top) / Math.max(1, r.height)) * 2 - 1, -1, 1);
+    });
+    container.addEventListener('pointerleave', () => { this.pointer.tx = 0; this.pointer.ty = 0; });
     this.sparks = new ParticlePool(this.scene, 500, 0.09, true);
     this.confetti = new ParticlePool(this.scene, 700, 0.13, false);
 
@@ -612,29 +468,32 @@ export class Stage3D {
     top.position.y = 0.01;
     this.turntable.add(top);
 
+    // The lot stands on the pedestal but does not ride the turntable: a photograph that
+    // spun all the way round would show its back half the time.
     this.iconHolder = new THREE.Group();
-    this.iconHolder.position.y = 1.2;
-    this.iconHolder.scale.setScalar(1.25);
-    this.turntable.add(this.iconHolder);
+    this.iconHolder.position.y = 1.44;
+    p.add(this.iconHolder);
+    this.frameBackMat = new THREE.MeshStandardMaterial({ color: 0x111317, roughness: 0.4, metalness: 0.7 });
+    this.glassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.04, metalness: 1, transparent: true, opacity: 0.12, envMapIntensity: 1.6, depthWrite: false });
 
     this.holoMat = new THREE.MeshBasicMaterial({
       map: this.beamTex, color: PRICE_COLORS.cool, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending,
       depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
     });
-    const holo = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.95, 2.4, 40, 1, true).rotateX(Math.PI), this.holoMat);
-    holo.position.y = 1.42 + 1.2;
+    const holo = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.95, 0.7, 40, 1, true).rotateX(Math.PI), this.holoMat);
+    holo.position.y = 1.42 + 0.35;
     p.add(holo);
 
     // Floating price rings.
     this.ringMat = new THREE.MeshBasicMaterial({ color: PRICE_COLORS.cool, toneMapped: false });
     this.rings = [];
-    [[1.38, 0.022, 0.25, 0.9], [1.56, 0.014, -0.4, -0.6], [1.74, 0.01, 0.6, 0.4]].forEach(([r, tube, tilt, speed], i) => {
+    [[2.02, 0.022, 0.2, 0.9], [2.22, 0.014, -0.3, -0.6], [2.44, 0.01, 0.4, 0.4]].forEach(([r, tube, tilt, speed], i) => {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 8, 96), this.ringMat);
       // A bead on each ring makes its spin readable.
       const bead = new THREE.Mesh(new THREE.SphereGeometry(tube * 3.2, 10, 8), this.ringMat);
       bead.position.x = r;
       ring.add(bead);
-      ring.position.y = 2.55;
+      ring.position.y = 2.8;
       ring.userData = { tilt, speed, i };
       p.add(ring);
       this.rings.push(ring);
@@ -683,19 +542,26 @@ export class Stage3D {
   }
 
   // ---------- contenders ----------
-  setContenders(list) {
+  // Everyone at the table gets a podium. The local player is the camera, so their own
+  // podium stays out of sight until the final showdown. Rivals stand in an arc behind
+  // the pedestal, the middle ones raised so they can be seen over the lot.
+  setContenders(list, localId = 0) {
     for (const u of this.units) { this.scene.remove(u.group); disposeTree(u.group, new Set([this.setMat, this.brass])); u.tex.dispose(); }
     this.units = [];
-    const homes = [
-      null,
-      { pos: [-4.7, 0.18, -2.6], rot: 0.5 },
-      { pos: [0, 2.7, -6.2], rot: 0 },
-      { pos: [4.7, 0.18, -2.6], rot: -0.5 },
-    ];
+    const rivals = list.filter((c) => c.id !== localId);
+    const k = rivals.length;
     list.forEach((c, idx) => {
       const u = this._makeUnit(c, idx);
-      u.home = homes[idx] || { pos: [0, 0.18, 9], rot: 0 };
-      u.hiddenAtHome = idx === 0;
+      if (c.id === localId) {
+        u.home = { pos: [0, 0.18, 9], rot: 0 };
+        u.hiddenAtHome = true;
+      } else {
+        const i = rivals.indexOf(c);
+        const x = k === 1 ? -0.72 : (i / (k - 1)) * 2 - 1;
+        const lift = 1 - x * x;
+        u.home = { pos: [x * 5.3, 0.18 + lift * 2.5, -2.5 - lift * 3.6], rot: -x * 0.5 };
+        u.hiddenAtHome = false;
+      }
       u.group.position.set(...u.home.pos);
       u.group.rotation.y = u.home.rot;
       u.target = { pos: new THREE.Vector3(...u.home.pos), rot: u.home.rot };
@@ -706,7 +572,9 @@ export class Stage3D {
     this.pedestal.visible = true;
     this.gavelRig.visible = true;
     this.celebrate = 0;
-    if (this.crown) { this.crown.parent.remove(this.crown); disposeTree(this.crown); this.crown = null; }
+    this.crown = null;
+    if (this.camMode === 'focus') this.camMode = 'wide';
+    this.setOracle(false);
   }
 
   _makeUnit(c, idx) {
@@ -839,30 +707,145 @@ export class Stage3D {
   }
 
   // ---------- lots ----------
-  showLot(item, { mystery = false, look = 'hype' } = {}) {
+  // Puts a lot on the pedestal: a sealed crate, or a glass-and-gold frame holding the
+  // lot's photograph (or its illustrated card until, or unless, a photograph arrives).
+  showLot(item, { mystery = false } = {}) {
     this.clearLot();
-    const g = new THREE.Group();
+    this.lotItem = item;
+    this.lotMystery = mystery;
+    let g;
     if (mystery) {
+      g = new THREE.Group();
       const mat = new THREE.MeshStandardMaterial({ map: this._crateTexture(), roughness: 0.8, metalness: 0.05 });
-      add(g, new THREE.BoxGeometry(1.2, 1.2, 1.2), mat);
+      add(g, new THREE.BoxGeometry(1.5, 1.5, 1.5), mat);
+      g.position.y = 1.15;
       g.userData.crate = true;
+      g.userData.baseY = 1.15;
     } else {
-      const mats = lotMaterials(item, look);
-      (ICONS[item.proceduralIconType] || ICONS.box)(g, mats);
+      const m = this.media ? this.media.texture(item, THREE) : { texture: this._blankTexture(), aspect: 1.5 };
+      g = this._makeFrame(m.texture, m.aspect);
     }
     g.scale.setScalar(0.001);
     this.iconHolder.add(g);
     this.icon = g;
     this.iconScale = 0;
-    this.iconSpin = 9;
+    this.iconDrop = false;
     this.iconWobble = 0;
+    this.flipT = 0;
+    this.yaw = 0;
+  }
+
+  // A photograph has just arrived for the lot that is on the pedestal: swap it in.
+  refreshLot(item) {
+    if (!this.icon || this.lotMystery || !this.lotItem || this.lotItem.id !== item.id) return;
+    const scale = this.iconScale;
+    this.showLot(item, { mystery: false });
+    this.iconScale = scale;
+    this.flipT = 1;
   }
 
   clearLot() {
     if (!this.icon) return;
     this.iconHolder.remove(this.icon);
-    disposeTree(this.icon);
+    disposeTree(this.icon, this.keepMats);
     this.icon = null;
+    this.lotItem = null;
+  }
+
+  _blankTexture() {
+    if (!this.blankTex) this.blankTex = canvasTexture(8, 8, (c) => { c.fillStyle = '#14171b'; c.fillRect(0, 0, 8, 8); });
+    return this.blankTex;
+  }
+
+  _makeFrame(texture, aspect) {
+    const maxW = 3.2;
+    const maxH = 2.15;
+    let w = maxW;
+    let h = w / aspect;
+    if (h > maxH) { h = maxH; w = h * aspect; }
+    const bar = 0.085;
+    const depth = 0.14;
+    const g = new THREE.Group();
+    const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
+    g.add(photo);
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(w, h), this.frameBackMat);
+    back.rotation.y = Math.PI;
+    back.position.z = -0.03;
+    g.add(back);
+    add(g, new THREE.BoxGeometry(w + bar * 2, bar, depth), this.brass, 0, h / 2 + bar / 2, 0);
+    add(g, new THREE.BoxGeometry(w + bar * 2, bar, depth), this.brass, 0, -h / 2 - bar / 2, 0);
+    add(g, new THREE.BoxGeometry(bar, h, depth), this.brass, -w / 2 - bar / 2, 0, 0);
+    add(g, new THREE.BoxGeometry(bar, h, depth), this.brass, w / 2 + bar / 2, 0, 0);
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(w, h), this.glassMat);
+    glass.position.z = 0.05;
+    g.add(glass);
+    const size = new THREE.Vector2(w + bar * 2 + 0.34, h + bar * 2 + 0.34);
+    const rimMat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: this.priceColor.clone() }, uTime: { value: 0 }, uHeat: { value: 0 }, uSize: { value: size } },
+      vertexShader: RIM_VERT, fragmentShader: RIM_FRAG,
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
+    });
+    const rim = new THREE.Mesh(new THREE.PlaneGeometry(size.x, size.y), rimMat);
+    rim.position.z = -0.01;
+    g.add(rim);
+    // Stand.
+    add(g, new THREE.CylinderGeometry(0.05, 0.07, 0.34, 12), this.brass, 0, -h / 2 - bar - 0.16, 0);
+    add(g, new THREE.CylinderGeometry(0.34, 0.4, 0.06, 28), this.brass, 0, -h / 2 - bar - 0.33, 0);
+    const baseY = 0.36 + bar + h / 2;
+    g.position.y = baseY;
+    g.userData = { rim: rimMat, baseY, w, h };
+    return g;
+  }
+
+  // A small framed copy of a lot flies from one podium to another (a steal).
+  flyItem(item, fromId, toId) {
+    if (!this.media) return;
+    const m = this.media.texture(item, THREE);
+    const w = 1.3;
+    const h = Math.min(1.1, w / m.aspect);
+    const g = new THREE.Group();
+    const edge = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.12, h + 0.12), new THREE.MeshBasicMaterial({ color: 0xffc94d, side: THREE.DoubleSide, toneMapped: false }));
+    edge.position.z = -0.01;
+    g.add(edge);
+    g.add(new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: m.texture, side: THREE.DoubleSide, toneMapped: false })));
+    const spot = (id) => {
+      const u = this._unit(id);
+      if (u && u.group.visible) return u.group.position.clone().add(new THREE.Vector3(0, 3.3, 0.4));
+      // The local player has no podium on screen: their lots come to, and leave from, the camera.
+      const dir = this.camLook.clone().sub(this.camPos).normalize();
+      return this.camPos.clone().addScaledVector(dir, 2.6).add(new THREE.Vector3(0, -0.9, 0));
+    };
+    const from = spot(fromId);
+    const to = spot(toId);
+    g.position.copy(from);
+    this.scene.add(g);
+    this.flights.push({ g, from, to, t: 0, dur: 1.3 });
+    this.sparks.emit({ x: from.x, y: from.y, z: from.z, n: 40, speed: 2.4, up: 0.8, colors: [0xffd27a, 0xff3b2a], life: 0.8, gravity: 3, drag: 1.2 });
+  }
+
+  // The Oracle takes over the studio: violet light, and the house lights drop.
+  setOracle(on) {
+    if (this.oracleOn === on) return;
+    this.oracleOn = on;
+    if (on) {
+      this.bulbOn.setRGB(0.78, 0.5, 1.0);
+      this.priceTarget.set(0xa56bff);
+      this.key.intensity = 260;
+    } else {
+      this.bulbOn.setRGB(1.0, 0.8, 0.42);
+      this.key.intensity = 900;
+      this.setPrice(this.price);
+    }
+    this.bulbStep = -1;
+  }
+
+  // Point the camera at one contender's podium. `close` pushes in for the gamble.
+  focusUnit(id, close = false) {
+    const u = this._unit(id);
+    if (!u || !u.group.visible) { this.camMode = 'pedestal'; return; }
+    const p = u.target.pos;
+    this.focus = { pos: [p.x * 0.72, p.y + 2.7, p.z + (close ? 4.3 : 6.4)], look: [p.x, p.y + 2.2, p.z], orbit: 0.02 };
+    this.camMode = 'focus';
   }
 
   _crateTexture() {
@@ -891,7 +874,7 @@ export class Stage3D {
   setPrice(amount) {
     this.price = amount;
     const key = amount >= 8 ? 'crimson' : amount >= 4 ? 'amber' : 'cool';
-    this.priceTarget.set(PRICE_COLORS[key]);
+    if (!this.oracleOn) this.priceTarget.set(PRICE_COLORS[key]);
     this.setSign(amount > 0 ? `$${amount}` : '$0', amount >= 8);
   }
 
@@ -902,7 +885,7 @@ export class Stage3D {
     this._slam(0.55);
     const u = this._unit(id);
     if (u && u.group.visible) { u.paddleT = 1.1; u.nod = 0.4; }
-    this.iconSpin = Math.max(this.iconSpin, 4);
+    this.kick = 1;
   }
 
   sold(id) {
@@ -916,7 +899,6 @@ export class Stage3D {
 
   noSale() {
     this._slam(0.35);
-    this.iconSpin = 0;
     this.iconDrop = true;
   }
 
@@ -952,7 +934,7 @@ export class Stage3D {
         spin: new THREE.Vector3(Math.random() * 8 - 4, Math.random() * 8 - 4, Math.random() * 8 - 4),
       });
     }
-    this.showLot(item, { look: 'true' });
+    this.showLot(item, { mystery: false });
     this.shake = Math.max(this.shake, 0.16);
     if (good) {
       this.confetti.emit({ x: origin.x, y: origin.y, z: origin.z, n: 160, speed: 6, up: 1.2, colors: [0xffc94d, 0xffe08a, 0xfff1c2], life: 2.4, gravity: 6, drag: 0.5 });
@@ -986,13 +968,14 @@ export class Stage3D {
     u.nod = 0.5;
   }
 
-  // Final podium: four steps by rank, winner crowned.
+  // Final podium: one step per contender by rank, winner crowned.
   showdown(ranking) {
     this.clearLot();
+    this.setOracle(false);
     this.pedestal.visible = false;
     this.gavelRig.visible = false;
-    const xs = [-1.35, 1.35, -4.0, 4.0];
-    const hs = [1.7, 1.15, 0.75, 0.4];
+    const xs = [-1.35, 1.35, -4.05, 4.05, -6.75, 6.75];
+    const hs = [1.7, 1.15, 0.75, 0.5, 0.35, 0.22];
     ranking.forEach((id, i) => {
       const u = this._unit(id);
       if (!u) return;
@@ -1000,12 +983,12 @@ export class Stage3D {
         u.group.visible = true;
         u.group.position.set(xs[i], 0.18, 6);
       }
-      u.target = { pos: new THREE.Vector3(xs[i], hs[i], -0.5), rot: -xs[i] * 0.06 };
+      u.target = { pos: new THREE.Vector3(xs[i], hs[i], -0.5), rot: -xs[i] * 0.05 };
     });
     const win = this._unit(ranking[0]);
     if (win) {
       const crown = new THREE.Group();
-      ICONS.crown(crown, {
+      buildCrown(crown, {
         main: new THREE.MeshStandardMaterial({ color: 0xffc94d, metalness: 1, roughness: 0.2 }),
         alt: new THREE.MeshStandardMaterial({ color: 0xff3b2a, metalness: 0.6, roughness: 0.3 }),
       });
@@ -1018,7 +1001,12 @@ export class Stage3D {
       win.hop = 1.2;
     }
     this.setSign('WIN!', true);
-    this.setCamera('podium');
+    if (ranking.length > 4) {
+      this.focus = { pos: [0, 4.2, 15.5], look: [0, 2.5, 0], orbit: 0.08 };
+      this.camMode = 'focus';
+    } else {
+      this.setCamera('podium');
+    }
   }
 
   setTheme(theme) {
@@ -1084,29 +1072,59 @@ export class Stage3D {
       ring.rotation.x = Math.PI / 2 + d.tilt * 0.45 * Math.sin(t * 0.7 + d.i);
       ring.rotation.y = d.tilt * 0.3 * Math.cos(t * 0.5 + d.i * 2);
       ring.rotation.z += d.speed * dt * heat * motion;
-      ring.position.y = 2.55 + Math.sin(t * 1.3 + d.i * 2) * 0.12 * motion;
+      ring.position.y = 2.8 + Math.sin(t * 1.3 + d.i * 2) * 0.12 * motion;
     }
 
-    // Lot on the turntable.
-    this.iconSpin = damp(this.iconSpin, 0, 2.5, dt);
-    this.turntable.rotation.y += (0.5 + this.iconSpin) * dt * motion;
+    // The lot on the pedestal.
+    this.turntable.rotation.y += 0.5 * dt * motion;
+    this.pointer.x = damp(this.pointer.x, this.pointer.tx, 4, dt);
+    this.pointer.y = damp(this.pointer.y, this.pointer.ty, 4, dt);
+    this.kick = damp(this.kick, 0, 5, dt);
+    this.flipT = Math.min(1, this.flipT + dt / 0.9);
     if (this.icon) {
       this.iconScale = damp(this.iconScale, this.iconDrop ? 0 : 1, 7, dt);
-      const s = Math.max(0.001, this.iconScale);
-      this.icon.scale.setScalar(s);
-      this.icon.position.y = Math.sin(t * 1.6) * 0.07 * motion;
-      if (this.iconWobble) {
-        this.icon.rotation.z = Math.sin(t * 34) * 0.07 * this.iconWobble;
-        this.icon.position.x = Math.sin(t * 41) * 0.03 * this.iconWobble;
-      } else if (this.icon.userData.crate) {
-        this.icon.rotation.z = 0;
-        this.icon.position.x = 0;
+      this.icon.scale.setScalar(Math.max(0.001, this.iconScale));
+      const d = this.icon.userData;
+      this.icon.position.y = d.baseY + Math.sin(t * 1.6) * 0.05 * motion;
+      if (d.crate) {
+        this.yaw += 0.6 * dt * motion;
+        this.icon.rotation.y = this.yaw;
+        this.icon.rotation.z = this.iconWobble ? Math.sin(t * 34) * 0.07 : 0;
+        this.icon.position.x = this.iconWobble ? Math.sin(t * 41) * 0.03 : 0;
+      } else {
+        // A slow sway, one full turn as it arrives, a shiver on every bid, and a lean
+        // towards the pointer.
+        const arrive = Math.pow(1 - this.flipT, 3) * -TAU * motion;
+        this.icon.rotation.y = Math.sin(t * 0.45) * 0.34 * motion + arrive + Math.sin(t * 15) * 0.05 * this.kick + this.pointer.x * 0.24;
+        this.icon.rotation.x = Math.sin(t * 0.8) * 0.035 * motion + this.pointer.y * 0.09;
+        d.rim.uniforms.uTime.value = t;
+        d.rim.uniforms.uHeat.value = this.callStage * 0.9;
+        d.rim.uniforms.uColor.value.copy(this.priceColor);
       }
     }
     if (!this.icon) this.iconDrop = false;
 
+    // Lots in flight between podiums.
+    for (let i = this.flights.length - 1; i >= 0; i--) {
+      const f = this.flights[i];
+      f.t += dt / f.dur;
+      const kf = Math.min(1, f.t);
+      const e2 = kf * kf * (3 - 2 * kf);
+      f.g.position.lerpVectors(f.from, f.to, e2);
+      f.g.position.y += Math.sin(Math.PI * kf) * 2.8;
+      f.g.lookAt(this.camera.position);
+      f.g.rotateZ(kf * TAU * 1.5);
+      f.g.scale.setScalar(kf > 0.85 ? Math.max(0.01, (1 - kf) / 0.15) : 1);
+      if (f.t >= 1) {
+        this.sparks.emit({ x: f.to.x, y: f.to.y, z: f.to.z, n: 50, speed: 3, up: 1, colors: [0xffd27a, 0xfff1c2], life: 0.9, gravity: 4, drag: 1 });
+        this.scene.remove(f.g);
+        disposeTree(f.g);
+        this.flights.splice(i, 1);
+      }
+    }
+
     // Marquee chase. Faster as the auctioneer counts down.
-    const speed = 4 + this.callStage * 5;
+    const speed = (this.oracleOn ? 11 : 4) + this.callStage * 5;
     const step = Math.floor(t * speed);
     if (step !== this.bulbStep) {
       this.bulbStep = step;
@@ -1157,7 +1175,7 @@ export class Stage3D {
     this.confetti.update(dt);
 
     // Camera.
-    const cam = CAMS[this.camMode];
+    const cam = this.camMode === 'focus' && this.focus ? this.focus : CAMS[this.camMode] || CAMS.wide;
     const fit = clamp(1.55 / this.camera.aspect, 1, 2.1); // pull back on narrow screens
     const orbit = Math.sin(t * 0.18) * cam.orbit * motion;
     const look = this._v1 || (this._v1 = new THREE.Vector3());
