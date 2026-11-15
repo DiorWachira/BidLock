@@ -487,7 +487,7 @@ export class Stage3D {
     // Floating price rings.
     this.ringMat = new THREE.MeshBasicMaterial({ color: PRICE_COLORS.cool, toneMapped: false });
     this.rings = [];
-    [[2.02, 0.022, 0.2, 0.9], [2.22, 0.014, -0.3, -0.6], [2.44, 0.01, 0.4, 0.4]].forEach(([r, tube, tilt, speed], i) => {
+    [[2.25, 0.022, 0.2, 0.9], [2.45, 0.014, -0.3, -0.6], [2.68, 0.01, 0.4, 0.4]].forEach(([r, tube, tilt, speed], i) => {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 8, 96), this.ringMat);
       // A bead on each ring makes its spin readable.
       const bead = new THREE.Mesh(new THREE.SphereGeometry(tube * 3.2, 10, 8), this.ringMat);
@@ -758,8 +758,8 @@ export class Stage3D {
   }
 
   _makeFrame(texture, aspect) {
-    const maxW = 3.2;
-    const maxH = 2.15;
+    const maxW = 3.7;
+    const maxH = 2.45;
     let w = maxW;
     let h = w / aspect;
     if (h > maxH) { h = maxH; w = h * aspect; }

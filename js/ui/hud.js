@@ -163,13 +163,15 @@ export class Hud {
 
     const hi = engine.highBidder;
     const mine = hi === engine.localId;
-    this.bid.set(money(engine.currentBid), { red: mine });
-    let hb = 'OPENS AT $1';
-    if (engine.phase === PHASE.SOLD && lot && lot.result) {
+    this.bid.set(money(engine.currentBid), { red: mine && engine.phase !== PHASE.ORACLE });
+    const onBlock = [PHASE.LOT_INTRO, PHASE.BIDDING, PHASE.SOLD, PHASE.REVEAL].includes(engine.phase);
+    let hb = onBlock ? 'OPENS AT $1' : 'STAND BY';
+    if (!onBlock) { /* nothing is on the block between rounds */ }
+    else if (engine.phase === PHASE.SOLD && lot && lot.result) {
       hb = lot.result.winner == null ? 'NO SALE' : `SOLD TO ${this.tag(engine, lot.result.winner)}`;
     } else if (hi != null) hb = `HIGH BID: ${this.tag(engine, hi)}`;
     this.set('highbid', this.el.highbid, hb);
-    this.el.highbid.dataset.you = mine ? '1' : '0';
+    this.el.highbid.dataset.you = mine && onBlock ? '1' : '0';
     this.el.tally.classList.toggle('live', mine && engine.phase === PHASE.BIDDING);
     this.cash.set(money(me.cash));
     this.set('bid1', this.el.bid1Label, engine.currentBid === 0 ? 'OPEN AT $1' : `BID $${engine.currentBid + 1}`);
@@ -389,6 +391,7 @@ export class Hud {
     const el = this.el.bigcall;
     el.textContent = text;
     el.dataset.kind = kind;
+    el.dataset.long = String(text).length > 13 ? '1' : '0';
     el.classList.remove('on');
     void el.offsetWidth;
     el.classList.add('on');
@@ -423,7 +426,7 @@ export class Hud {
       const q = or.question;
       const answered = or.picked != null;
       const live = mine && !answered && (or.stage === 'q1' || or.stage === 'q2');
-      return `<p class="or-topic">${esc(q.topic.toUpperCase())} · QUESTION ${or.n} OF ${or.n === 2 ? '2' : '1 (OR 2)'}</p>
+      return `<p class="or-topic">${esc(q.topic.toUpperCase())} · ${or.n === 2 ? 'QUESTION 2 · DOUBLE OR NOTHING' : 'STEAL QUESTION'}</p>
         <p class="or-q">${esc(q.text)}</p>
         <div class="or-answers">${q.answers.map((a, i) => {
           let state = '';

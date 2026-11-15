@@ -93,7 +93,7 @@ let lobbyView = null;
 let autoDone = '';
 const verdict = { active: false, step: 0, total: 0, timer: 0, done: false };
 const heroCats = [...CATEGORIES, MYSTERY_CATEGORY];
-const hero = { cat: 0, idx: new Array(heroCats.length).fill(0), auto: 0, touched: -99, item: null };
+const hero = { cat: 0, idx: new Array(heroCats.length).fill(0), auto: 0, touched: -99, item: null, px: -1, py: -1 };
 
 // Calls go straight through when the 3D stage exists and quietly vanish when it does not.
 const S = new Proxy({}, {
@@ -206,7 +206,19 @@ function buildHero() {
     if (advance && hero.cat === i) hero.idx[i] = (hero.idx[i] + 1) % heroCats[i].items.length;
     showHero(i);
   };
-  wrap.addEventListener('pointerover', (e) => { const b = e.target.closest('.cat'); if (b && e.pointerType === 'mouse') pick(Number(b.dataset.cat), false); });
+  // Only a pointer that actually moved counts as a hover. If the layout shifts under a
+  // still pointer, the lot on the pedestal should not change by itself.
+  wrap.addEventListener('pointerover', (e) => {
+    const b = e.target.closest('.cat');
+    if (!b || e.pointerType !== 'mouse') return;
+    if (e.clientX === hero.px && e.clientY === hero.py) return;
+    hero.px = e.clientX;
+    hero.py = e.clientY;
+    pick(Number(b.dataset.cat), false);
+  });
+  const track = (e) => { hero.px = e.clientX; hero.py = e.clientY; };
+  wrap.addEventListener('pointermove', track);
+  wrap.addEventListener('pointerdown', track);
   wrap.addEventListener('focusin', (e) => { const b = e.target.closest('.cat'); if (b) pick(Number(b.dataset.cat), false); });
   wrap.addEventListener('click', (e) => { const b = e.target.closest('.cat'); if (b) { audio.unlock(); audio.blip(); pick(Number(b.dataset.cat), true); } });
   wrap.addEventListener('keydown', (e) => {

@@ -790,3 +790,12 @@ th[data-win="1"] .v-rank { background: var(--tally); color: var(--tally-ink); pa
   .roomchip { font-size: 10px; padding: 4px; }
   .rv-kind { display: none; }
 }
+
+/* ---------- 2.0 polish ---------- */
+.bigcall[data-long="1"] { font-size: clamp(22px, 3.6vw, 46px); white-space: normal; line-height: 1; overflow: visible; width: max-content; max-width: 86%; }
+#lot-name { font-size: clamp(21px, 2.2vw, 31px); overflow-wrap: break-word; hyphens: auto; }
+.cat-name { white-space: normal; line-height: 1.12; font-size: 12.5px; }
+.cat { min-height: 42px; }
+@media (min-width: 981px) and (max-width: 1320px) { .lot-photo { width: 144px; } }
+@media (max-width: 640px) { #lot-name { font-size: 21px; } .lot-line { display: none; } }
+.hero-top { min-height: 158px; }
