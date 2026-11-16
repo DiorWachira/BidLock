@@ -234,10 +234,10 @@ export class RoyaleStage {
     g.rotation.x = -0.36;
     g.scale.setScalar(0.92);
     this.scene.add(g);
-    this.drawBoard({ title: 'TRAPDOOR ROYALE', text: 'Find your feet. The first question is coming.', answers: null });
+    this.drawBoard({ title: 'TRAPDOOR ROYALE', text: 'Find your feet. The first question is coming.' });
   }
 
-  drawBoard({ title, text, answers, correct = -1 }) {
+  drawBoard({ title, text, answers, correct = -1, correct2 = -1 }) {
     const c = this.boardCanvas.getContext('2d');
     const W = 1024;
     const H = 512;
@@ -256,11 +256,13 @@ export class RoyaleStage {
     let lines = wrap(c, text, W - 60);
     while (lines.length > (answers ? 3 : 6) && size > 26) { size -= 4; c.font = `700 ${size}px ${DISPLAY}`; lines = wrap(c, text, W - 60); }
     lines.slice(0, 6).forEach((ln, i) => c.fillText(ln, 30, 96 + i * (size + 8)));
-    if (answers) {
-      answers.forEach((a, i) => {
+    // In a blackout the answers are dark: four lit letters and a question mark each.
+    const shown = answers || ['?', '?', '?', '?'];
+    if (answers !== undefined) {
+      shown.forEach((a, i) => {
         const x = 30 + (i % 2) * 492;
         const y = 290 + Math.floor(i / 2) * 104;
-        const dim = correct >= 0 && i !== correct;
+        const dim = correct >= 0 && i !== correct && i !== correct2;
         c.globalAlpha = dim ? 0.3 : 1;
         c.fillStyle = PLATFORM_COLORS[i];
         c.fillRect(x, y, 472, 88);
@@ -334,6 +336,9 @@ export class RoyaleStage {
 
   // New round: doors shut, bridges out, everyone back to the hub.
   newRound(aliveIds) {
+    this.pending = []; // effects left over from the last drop must not fire in this round
+    // Anyone who is out is gone from the floor, even if their fall was still to come.
+    for (const [id, f] of this.figures) if (!aliveIds.includes(id)) { f.hidden = true; f.group.visible = false; }
     this.locked = false;
     this.scramble = false;
     for (const p of this.platforms) { p.open = false; p.state = 'idle'; }
@@ -410,12 +415,13 @@ export class RoyaleStage {
   }
 
   // Three doors open. Anyone on them, or still in the middle, goes down.
-  reveal({ correct, fallen, mercy }) {
-    this.platforms.forEach((p, i) => { p.state = i === correct ? 'right' : mercy ? 'spared' : 'wrong'; });
+  reveal({ correct, correct2 = -1, held = -1, fallen, mercy }) {
+    const safe = (i) => i === correct || i === correct2;
+    this.platforms.forEach((p, i) => { p.state = safe(i) ? 'right' : mercy || i === held ? 'spared' : 'wrong'; });
     this._after(0.45, () => {
       if (mercy) return;
       this.platforms.forEach((p, i) => {
-        if (i === correct) return;
+        if (safe(i) || i === held || p.open) return;
         p.open = true;
         const c = centreOf(i);
         for (const side of [-1, 1]) this.sparks.emit({ x: c.x + side * (SIZE / 2), y: 0, z: c.z, n: 60, speed: 4, up: 0.6, colors: [0xffd27a, 0xff3b2a, 0xfff1c2], life: 0.9, gravity: 9, drag: 0.8, radius: 2 });
@@ -428,6 +434,20 @@ export class RoyaleStage {
       for (const [, f] of this.figures) if (!f.hidden && f.state !== 'fall' && this.platformAt(f.pos.x, f.pos.z) === correct) f.cheer(1.8);
       this.confetti.emit({ x: c.x, y: 4, z: c.z, n: 50, speed: 3, up: 0.8, colors: [PLATFORM_COLORS[correct], 0xf3ead6], life: 2.2, gravity: 3, drag: 1.2, radius: 1.5 });
     });
+  }
+
+  // Crumble: one platform gives way halfway through a question.
+  crumble(platform, fallen) {
+    const p = this.platforms[platform];
+    if (!p) return;
+    p.state = 'wrong';
+    p.open = true;
+    const c = centreOf(platform);
+    for (const side of [-1, 1]) this.sparks.emit({ x: c.x + side * (SIZE / 2), y: 0, z: c.z, n: 70, speed: 4, up: 0.7, colors: [0xffd27a, 0xff3b2a, 0xfff1c2], life: 1, gravity: 9, drag: 0.8, radius: 2 });
+    this.shake = 0.3;
+    for (const id of fallen) { const f = this.figures.get(id); if (f) f.fall(); }
+    // Anyone left standing on it (thrown back) runs for the hub.
+    for (const [, f] of this.figures) if (!f.hidden && f.state !== 'fall' && this.platformAt(f.pos.x, f.pos.z) === platform) f.moveTo(c.x * 0.15, c.z * 0.15, 0);
   }
 
   champion(id) {

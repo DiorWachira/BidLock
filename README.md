@@ -32,7 +32,9 @@ Pick a show on the title screen, or in the lobby when you host a room. After a g
 | **Trapdoor Royale** | Trivia elimination on a floating arena | 1 to 6 people, bots fill to 12 |
 | **Last Lamp** | Trivia survival in a lighthouse in a storm | 1 to 6 people, bots fill to 6 |
 
-All three share the room-code lobby, the sound engine and the trivia question engine (Open Trivia DB, with the built-in bank of 50 as the fallback).
+All three share the room-code lobby, the sound engine and the trivia question engine.
+
+**Questions.** There are 310 built-in questions (`js/arcade/questionBank.js` plus the original 50), tagged easy, medium or hard, in four styles: straight questions, odd one out, which came first, and finish the saying. When the Open Trivia DB is reachable the quiz games also fetch 50 of its questions per match, across every category and difficulty, using a session token so the service does not send the same question twice. Each device remembers the last 900 questions it asked and holds them back until the rest have been used: playing offline and alternating the two games, the first repeat comes in match 22. Both games start easy and get harder as the match goes on. BidLock's Oracle draws from the 113 hardest general-knowledge questions.
 
 ### Trapdoor Royale
 
@@ -43,6 +45,18 @@ A question goes up on the board over the arena with four answers, one per colour
 - **Standard rounds** give 12 seconds. From question 4 they are **speed rounds** of 7 seconds.
 - With three or fewer left it is **sudden death**: if everyone finds the right platform, the last one to arrive drops anyway.
 - If nobody finds it, the floor holds and everyone goes again.
+- From question 2, about every other question carries a **twist**, never the same one twice running:
+
+  | Twist | What happens |
+  | --- | --- |
+  | Blackout | The answers stay dark until the last 5 seconds. |
+  | Shuffle | Halfway through, every answer jumps to a different platform. |
+  | Crumble | Halfway through, one wrong platform gives way early, with anyone on it, and stays closed. |
+  | Reprieve | One wrong platform holds when the floor drops. Nobody knows which. |
+  | Double Up | Two platforms are safe this time. |
+  | Last Gasp | Half the usual time. |
+
+  Only Blackout and Last Gasp happen in sudden death.
 - The first contestant to reach the right platform earns a **safety net** (a ring at their feet), which catches them on one wrong answer. Nets do not help in sudden death.
 - Once you are out you can still **call** each answer from the sidelines; right calls are counted on the results card. Solo, you can **skip to the end**, and once every person in a room is out the bots finish at four times speed.
 - The last one standing rises on the central pillar as champion.
@@ -53,18 +67,31 @@ Up to twelve contestants: everyone in the room, then bots. Each bot has a knowle
 
 ![Last Lamp](screenshots/lamp-climb.png)
 
-Six keepers, a storm, and three flames each, carried in a lantern. Every round everyone answers a question in secret. Keepers who answer right stay by the fire. Keepers who answer wrong drop through the hatch into **the Undertow** and play one of four survival games; the losers each lose a flame (two flames from question 5).
+Six keepers, a storm, and three flames each, carried in a lantern. Every round everyone answers a question in secret. Keepers who answer right stay by the fire. Keepers who answer wrong drop through the hatch into **the Undertow** and play one of seven survival games; the losers each lose a flame (two flames from question 5).
 
 | Survival game | How it works |
 | --- | --- |
 | **The Loose Plank** | A keeper who answered right secretly loosens one plank. Everyone below picks a plank to stand on. Whoever picked the loose one goes into the water, and a saboteur who catches someone relights one of their own flames. If nobody was caught and the saboteur was one of the crew, the saboteur goes through it. |
 | **The Rising Tide** | Work the pump: five right quick sums each before the water wins. A wrong sum costs a stroke. |
 | **The Lifeboat** | Share or shove, chosen in secret. If everyone shares, everyone is safe. If anyone shoves, the shovers stay dry and everyone who shared goes over. If everyone shoves, everyone goes over. |
+| **The Tally** | A number question ("How tall is Kilimanjaro?") with four guesses, none exactly right. Whoever picked the guess furthest from the truth loses. If everyone agrees, they are safe only if they agreed on the closest guess. |
+| **The Bell Buoy** | The buoy flashes a pattern of four to seven signals, one at a time. Signal it back in order; one wrong signal and you are under. The pattern gets longer later in the match. |
+| **The Manifest** | Three quick easy questions; get two right to climb out. |
 | **The Storm Capstan** | Six sockets, one holds the lightning. On your turn, pull the next socket, or spin the wheel for a fresh one-in-six and pull twice. The panel shows the odds: spinning only pays once the next socket is worse than about one in three. |
+
+From question 2, about every other question brings **weather** that changes one rule for that question:
+
+| Weather | What happens |
+| --- | --- |
+| Calm Water | Answer right and a lost flame is relit. |
+| Lightning | The slowest right answer goes down the hatch too. |
+| Fog | The answers only show after six seconds. |
+| Undertow | A lost survival game costs two flames. |
+| Beacon | Right answers are worth a step of head start on the climb. |
 
 A keeper with no flames becomes a **wraith**: see-through and still answering. Every two right answers is a step of head start on the stairs, up to three. The lamp can never go fully dark: if a game would snuff out the last keepers, they hold on with one flame.
 
-When two keepers or fewer are left, or after seven questions, the storm breaks the lower door and it ends on **the climb**. Each sprint shows three statements ("Who wrote Things Fall Apart? → Wole Soyinka"); mark each true or false, and every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up two extra steps a sprint, and a wraith that reaches a keeper's step takes their lantern: the keeper becomes the wraith and slips back two steps. The water rises a step each sprint (two from the third), and a keeper it reaches is snuffed. The first keeper into the lamp room, step 12, lights the lamp and wins. In simulations about one match in seven is won by someone who had already become a wraith.
+When two keepers or fewer are left, or after seven questions, the storm breaks the lower door and it ends on **the climb**. Each sprint shows three statements, getting harder as you climb ("Who wrote Things Fall Apart? → Wole Soyinka"); mark each true or false, and every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up two extra steps a sprint, and a wraith that reaches a keeper's step takes their lantern: the keeper becomes the wraith and slips back two steps. The water rises a step each sprint (two from the third), and a keeper it reaches is snuffed. The first keeper into the lamp room, step 12, lights the lamp and wins. In simulations about one match in seven is won by someone who had already become a wraith.
 
 ### How the quiz games fit in
 
@@ -293,7 +320,7 @@ npm install
 npm test
 ```
 
-- `tests/arcade.test.mjs` runs in plain Node: 150 simulated matches of each quiz game at tables of 2 to 12, checking that exactly one champion is left, that all four survival games get played, that the lamp never goes fully dark, that secrets stay out of snapshots, and that a guest's mirror agrees with the host.
+- `tests/arcade.test.mjs` runs in plain Node: 150 simulated matches of each quiz game at tables of 2 to 12, checking that exactly one champion is left, that all seven survival games, six twists and five kinds of weather turn up, that no question repeats across ten matches on one device, that the lamp never goes fully dark, that secrets stay out of snapshots, and that a guest's mirror agrees with the host.
 - `tests/arcade.e2e.mjs` drives the browser through the channel guide, both quiz games solo, a room that votes, plays Trapdoor Royale, goes back to the lobby and plays Last Lamp, and both games on a 390 px phone.
 - `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
 - `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.

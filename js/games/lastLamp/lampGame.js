@@ -2,8 +2,14 @@
 // the climb, and the results. Rules live in lampEngine.js and undertowMinigames.js; the
 // set in lamp3d.js.
 
-import { LampEngine, L_PHASE } from './lampEngine.js';
-import { MINI_INFO } from './undertowMinigames.js';
+import { LampEngine, L_PHASE, EVENTS } from './lampEngine.js';
+import { MINI_INFO, BUOY_SIGNS } from './undertowMinigames.js';
+import { STYLE_LABEL } from '../../arcade/questionBank.js';
+
+// The Bell Buoy's four signals: a shape and a colour each, so colour is never the only cue.
+const SIGN_COLORS = ['#56B4E9', '#E69F00', '#009E73', '#CC79A7'];
+const SHOW_LEAD = 0.6; // seconds before the first signal
+const SHOW_STEP = 0.75; // seconds per signal
 import { LampStage } from './lamp3d.js';
 import { GameBase, esc } from '../../arcade/gameBase.js';
 
@@ -21,6 +27,7 @@ export class LampGame extends GameBase {
         <div class="ag-top">
           <p class="ag-chip" id="ll-stage">LAST LAMP</p>
           <p class="ag-chip" id="ll-round"></p>
+          <p class="ag-chip ag-event" id="ll-event" hidden></p>
           <p class="ag-chip ag-left" id="ll-left"></p>
         </div>
         <ol class="ll-roll" id="ll-roll" aria-label="Keepers and their flames"></ol>
@@ -29,7 +36,7 @@ export class LampGame extends GameBase {
         <section class="ag-card" id="ll-card" hidden></section>
       </div>`;
     this.el = {
-      view: this.$('#ll-view'), stage: this.$('#ll-stage'), round: this.$('#ll-round'), left: this.$('#ll-left'),
+      view: this.$('#ll-view'), stage: this.$('#ll-stage'), round: this.$('#ll-round'), event: this.$('#ll-event'), left: this.$('#ll-left'),
       roll: this.$('#ll-roll'), panel: this.$('#ll-panel'), note: this.$('#ll-note'), card: this.$('#ll-card'),
     };
     this.el.panel.addEventListener('click', (e) => {
@@ -63,6 +70,9 @@ export class LampGame extends GameBase {
     else if (kind === 'sum') this.send('mini', { option: Number(data.i) });
     else if (kind === 'boat') this.send('mini', { shove: data.v === 'shove' });
     else if (kind === 'pull') this.send('mini', { spin: data.v === 'spin' });
+    else if (kind === 'tally') { this.myTally = Number(data.i); this.send('mini', { option: Number(data.i) }); }
+    else if (kind === 'sign') this.send('mini', { sign: Number(data.i) });
+    else if (kind === 'manifest') { const v = this.engine.miniView(); this.myManifest = { n: v ? v.n : 0, i: Number(data.i) }; this.send('mini', { answer: Number(data.i) }); }
     else if (kind === 'mark') {
       this.marks = this.marks || [null, null, null];
       this.marks[Number(data.i)] = data.v === 'true';
@@ -80,6 +90,8 @@ export class LampGame extends GameBase {
       if (Number.isInteger(p.option)) payload.option = p.option;
       if (typeof p.shove === 'boolean') payload.shove = p.shove;
       if (typeof p.spin === 'boolean') payload.spin = p.spin;
+      if (Number.isInteger(p.sign)) payload.sign = p.sign;
+      if (Number.isInteger(p.answer)) payload.answer = p.answer;
       return e.miniFor(seat, payload);
     }
     if (action === 'mark') return e.markFor(seat, Number.isInteger(p.i) ? p.i : -1, p.v);
@@ -100,6 +112,9 @@ export class LampGame extends GameBase {
       if (v.kind === 'tide' && n < 3 && v.crew.includes(me)) { this.act('sum', { i: n }); return true; }
       if (v.kind === 'lifeboat' && n < 2 && v.crew.includes(me)) { this.act('boat', { v: n === 0 ? 'share' : 'shove' }); return true; }
       if (v.kind === 'capstan' && n < 2 && v.current === me) { this.act('pull', { v: n === 0 ? 'pull' : 'spin' }); return true; }
+      if (v.kind === 'tally' && n < 4 && v.crew.includes(me) && v.stage === 'play') { this.act('tally', { i: n }); return true; }
+      if (v.kind === 'buoy' && n < 4 && v.crew.includes(me) && v.stage === 'play') { this.act('sign', { i: n }); return true; }
+      if (v.kind === 'manifest' && n < 4 && v.crew.includes(me) && v.stage === 'q') { this.act('manifest', { i: n }); return true; }
     }
     return false;
   }
@@ -116,6 +131,9 @@ export class LampGame extends GameBase {
       else if (v.kind === 'tide' && v.crew.includes(me.id)) this.send('mini', { option: Math.floor(Math.random() * 3) });
       else if (v.kind === 'lifeboat') this.send('mini', { shove: Math.random() < 0.5 });
       else if (v.kind === 'capstan' && v.current === me.id) this.send('mini', { spin: false });
+      else if (v.kind === 'tally') this.send('mini', { option: Math.floor(Math.random() * 4) });
+      else if (v.kind === 'buoy' && v.stage === 'play') this.send('mini', { sign: Math.floor(Math.random() * 4) });
+      else if (v.kind === 'manifest' && v.stage === 'q') this.send('mini', { answer: Math.floor(Math.random() * 4) });
     } else if (e.phase === L_PHASE.SPRINT) {
       this.send('mark', { i: Math.floor(Math.random() * 3), v: Math.random() < 0.5 });
     }
@@ -138,7 +156,15 @@ export class LampGame extends GameBase {
         this.lastTick = 99;
         if (S) { S.toRoom(e.players.map((p) => p.id)); S.question(); S.sync(e.players); }
         a.setTension(0.2 + Math.min(0.5, d.n * 0.07));
-        this.note(d.n === 1 ? 'Answer in secret. Wrong answers go down the hatch.' : '');
+        this.wasFoggy = e.foggy;
+        this.el.event.hidden = !d.event;
+        if (d.event) {
+          this.el.event.textContent = EVENTS[d.event].name.toUpperCase();
+          if (d.event === 'lightning') { a.thunder(); if (S) S.thunder(); } else a.siren();
+          this.note(EVENTS[d.event].line);
+        } else {
+          this.note(d.n === 1 ? 'Answer in secret. Wrong answers go down the hatch.' : '');
+        }
         break;
       case 'answered':
         if (S) S.answered(d.id);
@@ -149,6 +175,15 @@ export class LampGame extends GameBase {
         else if (d.safe.includes(e.localId)) { a.chime(); this.note('Right. Stay by the fire.'); }
         else if (e.me && e.me.ghost) { if (e.me.answer === d.correct) a.chime(); this.note(e.me.answer === d.correct ? 'Right. Wraiths who know things climb faster at the end.' : 'Wrong. It costs a wraith nothing.'); }
         if (!d.down.length) this.note('Everyone was right. Nobody goes down.');
+        if (d.struck != null) {
+          a.thunder();
+          if (S) { S.thunder(); S.reveal([], [d.struck]); }
+          this.note(d.struck === e.localId ? 'Right, but the slowest: the lightning takes you down the hatch.' : `Lightning: ${this.nameOf(d.struck)} was right but slowest, and goes down too.`);
+        }
+        if (d.relit && d.relit.length) {
+          if (S) S.sync(e.players);
+          if (d.relit.includes(e.localId)) { a.chime(); this.shell.toast('Calm water: one of your flames is relit.'); }
+        }
         break;
       case 'descent':
         if (S) S.descend(d.crew, d.kind);
@@ -161,6 +196,9 @@ export class LampGame extends GameBase {
         if (S) S.startMini(d.kind, d.crew, { count: v ? v.count : 4, saboteur: d.saboteur });
         a.setTension(0.7);
         this.marks = null;
+        this.myTally = null;
+        this.myManifest = null;
+        this.buoyLit = -2;
         if (d.kind === 'planks' && d.saboteur === e.localId && !d.crew.includes(e.localId)) this.note('You were right, so you loosen a plank. Catch someone.');
         else this.note(MINI_INFO[d.kind].line);
         break;
@@ -234,7 +272,27 @@ export class LampGame extends GameBase {
       }
       if (d.step === 'turn' && d.id === e.localId) { a.heartbeat(); this.note('Your turn at the wheel.'); }
       if (d.step === 'reveal' && !d.losers.length) this.note('The storm passes over the capstan. Nobody is struck.');
+    } else if (d.kind === 'tally') {
+      if (d.step === 'chosen') a.knock(0.4);
+      if (d.step === 'reveal') { a.slam(); this.note(d.losers.length ? `The answer was ${this.fmt(d.truth)}. Furthest off: ${d.losers.map((id) => this.nameOf(id)).join(', ')}.` : `The answer was ${this.fmt(d.truth)}. Nobody was furthest off.`); }
+    } else if (d.kind === 'buoy') {
+      if (d.step === 'go') { a.whoosh(); this.note('Now signal it back.'); }
+      if (d.step === 'signal' && d.id === e.localId) { if (d.ok) a.blip(); else { a.buzzer(); this.note('Wrong signal. You are under.'); } }
+      if (d.step === 'reveal') a.slam();
+      if (S && d.step === 'go') S.buoyLight(null);
+    } else if (d.kind === 'manifest') {
+      if (d.step === 'answered') a.knock(0.4);
+      if (d.step === 'show') { const v = e.miniView(); if (v && v.answers && v.answers[e.localId] != null) (v.answers[e.localId] === v.correct ? a.chime() : a.buzzer()); }
+      if (d.step === 'reveal') a.slam();
     }
+  }
+
+  // Numbers the way people say them: 384,400 km; 13.8 billion years; the year 1969.
+  fmt(n, unit = null) {
+    const v = this.engine.miniView();
+    const u = unit != null ? unit : v && v.q ? v.q.unit : '';
+    const num = Number.isInteger(n) && n >= 1000 && n <= 2100 && !u ? String(n) : Number(n).toLocaleString('en-GB');
+    return u ? `${num} ${u}` : num;
   }
 
   sprintNote(d) {
@@ -272,9 +330,10 @@ export class LampGame extends GameBase {
       const lamps = Array.from({ length: e.R.flames }, (_, i) => `<i data-on="${i < p.flames ? 1 : 0}"></i>`).join('');
       const haunt = Math.min(e.R.maxHaunt, Math.floor((p.wraithRight || 0) / 2));
       const state = p.ghost ? (e.finale ? 'WRAITH' : `WRAITH${haunt ? ` +${haunt}` : ''}`) : '';
+      const beacon = !e.finale && p.beacon ? `<em>BEACON +${p.beacon}</em>` : '';
       const answered = e.phase === L_PHASE.QUESTION && p.answer != null ? '<u title="answered">✓</u>' : '';
       const step = e.finale ? `<em>STEP ${p.step}</em>` : '';
-      return `<li style="--who:${this.colors[p.id]}" data-ghost="${p.ghost ? 1 : 0}" data-me="${p.id === e.localId ? 1 : 0}"><b>${esc(p.id === e.localId ? 'YOU' : p.name)}</b><span class="ll-flames" aria-label="${p.flames} flames">${lamps}</span>${state ? `<span class="ll-tag">${state}</span>` : ''}${step}${answered}</li>`;
+      return `<li style="--who:${this.colors[p.id]}" data-ghost="${p.ghost ? 1 : 0}" data-me="${p.id === e.localId ? 1 : 0}"><b>${esc(p.id === e.localId ? 'YOU' : p.name)}</b><span class="ll-flames" aria-label="${p.flames} flames">${lamps}</span>${state ? `<span class="ll-tag">${state}</span>` : ''}${beacon}${step}${answered}</li>`;
     }).join('');
   }
 
@@ -290,22 +349,25 @@ export class LampGame extends GameBase {
       const shown = ph === L_PHASE.REVEAL;
       // A guest only learns everyone's answers at the reveal, so it remembers its own.
       const mine = !shown && this.role === 'client' ? this.myAnswer : me ? me.answer : null;
-      html = `<p class="lbl">${esc(q.topic.toUpperCase())} · ${me && me.ghost ? 'YOU ARE A WRAITH: ANSWER ANYWAY' : 'ANSWER IN SECRET'}</p>
+      const style = STYLE_LABEL[q.style] ? ` · ${STYLE_LABEL[q.style]}` : '';
+      const ev = e.event ? ` · ${EVENTS[e.event].name.toUpperCase()}` : '';
+      const fog = !q.answers || e.foggy;
+      html = `<p class="lbl">${esc(q.topic.toUpperCase())}${style}${ev} · ${me && me.ghost ? 'YOU ARE A WRAITH: ANSWER ANYWAY' : 'ANSWER IN SECRET'}</p>
         <p class="ag-qtext">${esc(q.text)}</p>
         <div class="ag-bar"><i data-bar></i></div>
-        <div class="ll-answers">${q.answers.map((ans, i) => {
+        <div class="ll-answers">${(q.answers || ['', '', '', '']).map((ans, i) => {
           let st = '';
           if (shown) st = i === e.correct ? 'right' : mine === i ? 'wrong' : 'dim';
           else if (mine === i) st = 'mine';
-          return `<button type="button" class="ans" data-act="answer" data-i="${i}" data-state="${st}" ${shown ? 'disabled' : ''}><kbd>${i + 1}</kbd><span>${esc(ans)}</span></button>`;
+          return `<button type="button" class="ans" data-act="answer" data-i="${i}" data-state="${st}" ${shown || fog ? 'disabled' : ''}><kbd>${i + 1}</kbd><span>${fog ? 'Fog on the glass…' : esc(ans)}</span></button>`;
         }).join('')}</div>
-        <p class="ll-hint">${shown ? '' : mine != null && mine >= 0 ? 'Locked in. You can still change it.' : 'Nobody sees your answer until the clock runs out.'}</p>`;
+        <p class="ll-hint">${shown ? (e.reveal && e.reveal.struck != null ? 'Lightning: the slowest right answer goes down too.' : '') : fog ? 'The fog clears in a moment.' : mine != null && mine >= 0 ? 'Locked in. You can still change it.' : 'Nobody sees your answer until the clock runs out.'}</p>`;
     } else if (ph === L_PHASE.DESCENT) {
       html = `<p class="lbl">THE UNDERTOW</p><p class="ag-qtext">${esc(MINI_INFO[e.pendingMini || 'tide'].name)}</p><p class="ll-hint">${esc(MINI_INFO[e.pendingMini || 'tide'].line)}</p>`;
     } else if (ph === L_PHASE.MINI || ph === L_PHASE.MINI_RESULT) {
       html = this.miniHtml();
     } else if (ph === L_PHASE.FINALE_INTRO) {
-      html = `<p class="lbl">THE CLIMB</p><p class="ag-qtext">The lower door gives way and the sea comes in. ${e.R.stairs} steps to the lamp room.</p><p class="ll-hint">Each sprint shows three statements. Mark each one true or false: every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up ${e.R.wraithFloat} extra steps a sprint, and a wraith that reaches your step takes your lantern and knocks you back ${e.R.knockback}.</p>`;
+      html = `<p class="lbl">THE CLIMB</p><p class="ag-qtext">The lower door gives way and the sea comes in. ${e.R.stairs} steps to the lamp room.</p><p class="ll-hint">Each sprint shows three statements. Mark each one true or false: every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up ${e.R.wraithFloat} extra steps a sprint, and a wraith that reaches your step takes your lantern and knocks you back ${e.R.knockback}. Beacon answers count as steps.</p>`;
     } else if (ph === L_PHASE.SPRINT || ph === L_PHASE.SPRINT_RESULT) {
       html = this.sprintHtml();
     }
@@ -349,6 +411,43 @@ export class LampGame extends GameBase {
         ${v.stage !== 'reveal' && odds ? `<p class="ll-odds">Next socket: <b>${odds === 1 ? 'certain' : `1 in ${odds}`}</b> · spin and pull twice: <b>about 1 in 3</b></p>` : ''}
         <ol class="ll-order">${v.order.map((id) => `<li data-now="${id === v.current && v.stage !== 'reveal' ? 1 : 0}">${name(id)}</li>`).join('')}</ol>
         ${mine ? '<div class="ll-options ll-two"><button type="button" class="btn btn-live" data-act="pull" data-v="pull"><span class="b-label">PULL</span><kbd>1</kbd></button><button type="button" class="btn" data-act="pull" data-v="spin"><span class="b-label">SPIN, PULL TWICE</span><kbd>2</kbd></button></div>' : ''}`;
+    } else if (v.kind === 'tally') {
+      const reveal = v.stage === 'reveal';
+      const mine = reveal ? v.picks[me] : this.myTally;
+      const chose = (v.chosen || []).includes(me);
+      body = `<p class="ag-qtext">${esc(v.q.text)}</p>
+        <p class="ll-hint">${reveal ? '' : 'Pick the number you think is closest. You do not have to be right: the furthest guess loses.'}${v.q.unit ? ` In ${esc(v.q.unit)}.` : ''}</p>
+        <div class="ll-tally">${v.q.options.map((o, i) => {
+          const who = reveal ? v.crew.filter((id) => v.picks[id] === i).map(name).join(', ') : '';
+          const st = reveal ? (v.losers.length && v.crew.some((id) => v.picks[id] === i && v.losers.includes(id)) ? 'wrong' : mine === i ? 'right' : 'dim') : mine === i ? 'mine' : '';
+          return `<button type="button" class="ans" data-act="tally" data-i="${i}" data-state="${st}" ${inCrew && !reveal ? '' : 'disabled'}><span>${esc(this.fmt(o, ''))}${who ? `<br><small>${who}</small>` : ''}</span></button>`;
+        }).join('')}</div>
+        ${reveal ? `<p class="ll-truth">The answer: ${esc(this.fmt(v.truth))}</p>` : `<p class="ll-hint">Chosen: ${(v.chosen || []).length} of ${v.crew.length}${chose ? ' (you)' : ''}</p>`}`;
+    } else if (v.kind === 'buoy') {
+      const showing = v.stage === 'show';
+      const elapsed = (v.total || 0) - v.t;
+      const lit = showing ? Math.floor((elapsed - SHOW_LEAD) / SHOW_STEP) : -1;
+      const sign = (k, extra = '') => `<span class="ll-sign" style="--sc:${SIGN_COLORS[k]}" ${extra}>${BUOY_SIGNS[k]}</span>`;
+      // While it plays, only the current signal shows: the rest is memory.
+      const blank = (txt = '') => `<span class="ll-sign" style="--sc:#414952">${txt}</span>`;
+      const seqRow = v.seq
+        ? v.seq.map((k, i) => (showing ? (i === lit ? sign(k, 'data-lit="1"') : blank(i < lit ? '✓' : '')) : sign(k, 'data-lit="1"'))).join('')
+        : Array.from({ length: v.length }, (_, i) => blank(i < (v.progress[me] || 0) ? '✓' : '?')).join('');
+      const done = (id) => (v.failed[id] ? 'fail' : v.progress[id] >= v.length ? 'done' : '');
+      body = `<p class="ll-hint">${showing ? `Watch the buoy: ${v.length} signals. Remember them in order.` : v.stage === 'play' ? 'Signal the pattern back, in order. One wrong signal and you are under.' : 'The pattern was:'}</p>
+        <div class="ll-signs">${seqRow}</div>
+        ${v.stage === 'play' && inCrew && !v.failed[me] && v.progress[me] < v.length ? `<div class="ll-signpad">${[0, 1, 2, 3].map((k) => `<button type="button" class="ans" data-act="sign" data-i="${k}" style="--sc:${SIGN_COLORS[k]}"><kbd>${k + 1}</kbd>${BUOY_SIGNS[k]}</button>`).join('')}</div><p class="ll-hint">You have signalled ${v.progress[me]} of ${v.length}.</p>` : ''}
+        <div class="ll-dots">${v.crew.map((id) => `<span data-s="${done(id)}">${name(id)} ${v.progress[id]}/${v.length}</span>`).join('')}</div>`;
+    } else if (v.kind === 'manifest') {
+      const open = v.stage !== 'q';
+      const mine = open ? v.answers[me] : this.myManifest && this.myManifest.n === v.n ? this.myManifest.i : null;
+      body = `<p class="ll-hint">Question ${Math.min(v.n + 1, v.of)} of ${v.of}. Get ${v.need} right to climb out. ${esc(v.q.topic)}.</p>
+        <p class="ag-qtext">${esc(v.q.text)}</p>
+        <div class="ll-answers">${v.q.answers.map((ans, i) => {
+          const st = open ? (i === v.correct ? 'right' : mine === i ? 'wrong' : 'dim') : mine === i ? 'mine' : '';
+          return `<button type="button" class="ans" data-act="manifest" data-i="${i}" data-state="${st}" ${inCrew && !open && mine == null ? '' : 'disabled'}><kbd>${i + 1}</kbd><span>${esc(ans)}</span></button>`;
+        }).join('')}</div>
+        <div class="ll-dots">${v.crew.map((id) => `<span data-s="${v.score[id] >= v.need ? 'done' : ''}">${name(id)} ${v.score[id]}/${v.need}</span>`).join('')}</div>`;
     }
     const relit = e.miniLast && e.miniLast.relit && e.miniLast.relit.length ? ` ${e.miniLast.relit.map(name).join(', ')} relight${e.miniLast.relit.length === 1 ? 's' : ''} a flame.` : '';
     const result = ph(e) === L_PHASE.MINI_RESULT && e.miniLast ? `<p class="ll-result">${e.miniLast.losers.length ? `${e.miniLast.losers.map(name).join(', ')} lose${e.miniLast.losers.length === 1 ? 's' : ''} ${e.miniLast.cost === 2 ? 'two flames' : 'a flame'}.` : 'Nobody loses a flame.'}${relit}</p>` : '';
@@ -416,9 +515,26 @@ export class LampGame extends GameBase {
     let timed = false;
     if (e.phase === L_PHASE.QUESTION || e.phase === L_PHASE.SPRINT) { timed = true; frac = e.total ? e.t / e.total : 0; }
     const v = e.phase === L_PHASE.MINI ? e.miniView() : null;
-    if (v && (v.stage === 'play' || v.stage === 'rig' || v.stage === 'step' || v.stage === 'turn')) {
+    // The fog clears.
+    if (e.phase === L_PHASE.QUESTION && this.wasFoggy && !e.foggy && e.question && e.question.answers) {
+      this.wasFoggy = false;
+      this.renderPanel();
+      this.shell.audio.whoosh();
+    }
+    // The Bell Buoy flashes its pattern, one signal at a time.
+    if (v && v.kind === 'buoy') {
+      const lit = v.stage === 'show' ? Math.floor(((v.total || 0) - v.t - SHOW_LEAD) / SHOW_STEP) : -1;
+      if (lit !== this.buoyLit) {
+        this.buoyLit = lit;
+        const sign = v.seq && lit >= 0 && lit < v.seq.length ? v.seq[lit] : null;
+        if (this.stage) this.stage.buoyLight(sign == null ? null : SIGN_COLORS[sign]);
+        if (sign != null) this.shell.audio.countUp(sign * 2);
+        this.renderPanel();
+      }
+    }
+    if (v && (v.stage === 'play' || v.stage === 'rig' || v.stage === 'step' || v.stage === 'turn' || v.stage === 'q')) {
       timed = true;
-      const full = v.kind === 'tide' ? v.total : v.kind === 'capstan' ? 7 : v.kind === 'lifeboat' ? 10 : v.stage === 'rig' ? 8 : 9;
+      const full = v.total || (v.kind === 'capstan' ? 7 : v.kind === 'lifeboat' ? 10 : v.stage === 'rig' ? 8 : 9);
       frac = v.t / full;
       if (v.kind === 'tide' && this.stage) this.stage.tideLevel(frac);
     }

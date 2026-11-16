@@ -448,6 +448,7 @@ function startRoom() {
 const shell = {
   get root() { return $('#arcade'); },
   audio,
+  store,
   debug,
   colors: (seats) => arcadeColors(seats),
   broadcast: (m) => lobby.broadcast(m),

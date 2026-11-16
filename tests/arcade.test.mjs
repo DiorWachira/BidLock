@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mulberry32 } from '../js/engine/auctionEngine.js';
-import { RoyaleEngine, R_PHASE, R_RULES } from '../js/games/trapdoorRoyale/royaleEngine.js';
+import { RoyaleEngine, R_PHASE, R_RULES, TWISTS } from '../js/games/trapdoorRoyale/royaleEngine.js';
 import { LampEngine, L_PHASE, L_RULES } from '../js/games/lastLamp/lampEngine.js';
 import { MINI_KINDS, MINI_INFO, Capstan, Planks } from '../js/games/lastLamp/undertowMinigames.js';
 import { QuizBank, makeSum } from '../js/arcade/quizBank.js';
@@ -76,6 +76,7 @@ function playRoyale({ seed, seats, skill = 0.5, mirror = null }) {
 
 test('trapdoor royale: 150 matches end with one champion and every invariant', () => {
   const modes = new Set();
+  const twists = new Set();
   let mercies = 0;
   let slows = 0;
   for (let seed = 1; seed <= 150; seed++) {
@@ -88,6 +89,10 @@ test('trapdoor royale: 150 matches end with one champion and every invariant', (
     assert.equal(new Set(e.ranking).size, n);
     assert.equal(e.ranking[0], e.alive[0].id);
     let left = n;
+    for (const c of log.filter((x) => x.type === 'crumble')) {
+      left -= c.fallen.length;
+      assert.ok(left >= 1, `seed ${seed}: a crumble never empties the floor`);
+    }
     for (const r of log.filter((x) => x.type === 'reveal')) {
       if (r.mercy) { mercies++; assert.equal(r.fallen.length, 0); }
       if (r.slow != null) { slows++; assert.deepEqual(r.fallen, [r.slow]); }
@@ -95,10 +100,19 @@ test('trapdoor royale: 150 matches end with one champion and every invariant', (
       assert.ok(left >= 1, `seed ${seed}: the floor never empties`);
     }
     assert.equal(left, 1);
+    let prev = null;
     for (const r of log.filter((x) => x.type === 'round')) {
       modes.add(r.mode);
-      assert.equal(r.time, r.mode === 'sudden' ? R_RULES.suddenTime : r.mode === 'speed' ? R_RULES.speedTime : R_RULES.standardTime);
+      const full = r.mode === 'sudden' ? R_RULES.suddenTime : r.mode === 'speed' ? R_RULES.speedTime : R_RULES.standardTime;
+      assert.equal(r.time, r.twist === 'lastgasp' ? Math.max(4, Math.round(full / 2)) : full);
       if (r.mode === 'sudden') assert.ok(r.left <= R_RULES.suddenAt);
+      if (r.twist) {
+        twists.add(r.twist);
+        assert.ok(r.n >= R_RULES.twistFrom, 'no twist on the first question');
+        assert.notEqual(r.twist, prev, 'never the same twist twice running');
+        if (r.mode === 'sudden') assert.ok(['blackout', 'lastgasp'].includes(r.twist));
+      }
+      prev = r.twist;
     }
     // Nobody moves once the platforms are locked.
     let locked = false;
@@ -109,7 +123,70 @@ test('trapdoor royale: 150 matches end with one champion and every invariant', (
     }
   }
   assert.deepEqual([...modes].sort(), ['speed', 'standard', 'sudden']);
+  assert.deepEqual([...twists].sort(), Object.keys(TWISTS).sort(), 'every twist turns up');
   assert.ok(mercies > 0 && slows > 0, `mercies ${mercies}, slows ${slows}`);
+});
+
+test('trapdoor royale twists: blackout, shuffle, crumble, reprieve, double up', () => {
+  const play = (twist, seed, act) => {
+    const e = new RoyaleEngine();
+    e.startMatch({ seats: table(1, 7), seed });
+    while (e.phase !== R_PHASE.QUESTION) e.update(0.05);
+    // Force the twist for this question, as _ask would have.
+    e.twist = twist; e.twistDone = false; e.blocked = -1;
+    if (twist === 'doubleup') e.correct2 = (e.correct + 2) % 4;
+    act(e);
+    return e;
+  };
+  // Blackout: the answers are off the wire until the last seconds.
+  play('blackout', 3, (e) => {
+    e.t = e.total;
+    assert.equal(e.dark, true);
+    assert.equal(e.serialize().q.answers, null);
+    e.t = R_RULES.blackoutShow - 0.1;
+    assert.equal(e.dark, false);
+    assert.equal(e.serialize().q.answers.length, 4);
+  });
+  // Shuffle: every answer moves platform; the right answer is still the right answer.
+  play('shuffle', 4, (e) => {
+    const before = e.question.answers.slice();
+    const rightText = before[e.correct];
+    e.players[0].choice = e.correct;
+    let ev = null;
+    e.on('shuffle', (d) => { ev = d; });
+    while (!e.twistDone) e.update(0.05);
+    assert.ok(ev);
+    assert.equal(e.question.answers[e.correct], rightText);
+    assert.ok(e.question.answers.every((a, i) => a !== before[i]), 'every answer moved');
+    assert.notEqual(e.players[0].choice, e.correct, 'standing still now means standing on a different answer');
+  });
+  // Crumble: a wrong platform goes early with anyone on it, and can no longer be used.
+  play('crumble', 5, (e) => {
+    const wrong = [0, 1, 2, 3].find((i) => i !== e.correct);
+    e.players.forEach((p) => { p.plan = []; });
+    e.players[0].choice = wrong;
+    let ev = null;
+    e.on('crumble', (d) => { ev = d; });
+    while (!e.twistDone) e.update(0.05);
+    assert.ok(ev && ev.platform !== e.correct);
+    if (ev.platform === wrong) assert.equal(e.players[0].alive, false);
+    assert.equal(e.moveFor(1, ev.platform), false, 'a crumbled platform is closed');
+  });
+  // Reprieve: one wrong platform holds at the drop.
+  play('reprieve', 6, (e) => {
+    let ev = null;
+    e.on('reveal', (d) => { ev = d; });
+    while (e.phase !== R_PHASE.DROP) e.update(0.05);
+    assert.ok(ev.held >= 0 && ev.held !== e.correct);
+    for (const p of e.players) if (p.choice === ev.held) assert.equal(p.alive, true);
+  });
+  // Double Up: both safe platforms survive.
+  play('doubleup', 7, (e) => {
+    e.players.forEach((p) => { p.plan = []; p.shovePlan = -1; });
+    e.moveFor(0, e.correct2);
+    while (e.phase !== R_PHASE.DROP) e.update(0.05);
+    assert.equal(e.players[0].alive, true);
+  });
 });
 
 test('trapdoor royale: inputs are checked, answers stay secret, mirrors agree', () => {
@@ -348,4 +425,86 @@ test('last lamp: the capstan, the plank reward and wraith haunting', () => {
   h.startMatch({ seats: table(2, 1), seed: 6, tuning: { stairs: 9 } });
   m.hydrate(wire(h.serialize()), 1);
   assert.equal(m.R.stairs, 9);
+});
+
+test('variety: a bigger bank, by difficulty, with no repeats from one match to the next', async () => {
+  const { QUESTIONS, ESTIMATES, questionId } = await import('../js/arcade/questionBank.js');
+  assert.ok(QUESTIONS.length >= 250, `${QUESTIONS.length} built-in questions`);
+  assert.ok(ESTIMATES.length >= 30);
+  for (const q of QUESTIONS) {
+    assert.equal(q.length, 8, q[3]);
+    assert.ok([1, 2, 3].includes(q[0]) && ['mc', 'odd', 'first', 'phrase'].includes(q[2]), q[3]);
+    assert.equal(new Set(q.slice(4)).size, 4, q[3]);
+  }
+  assert.equal(new Set(QUESTIONS.map((q) => questionId(q[3], q[4]))).size, QUESTIONS.length, 'ids are unique');
+  for (const d of [1, 2, 3]) assert.ok(QUESTIONS.filter((q) => q[0] === d).length >= 50, `difficulty ${d}`);
+
+  // Ten Last Lamp matches in a row on one device: no question repeats.
+  let seen = [];
+  const asked = new Set();
+  let repeats = 0;
+  for (let m = 1; m <= 10; m++) {
+    const quiz = new QuizBank(mulberry32(m * 101), { seen });
+    const e = new LampEngine();
+    e.startMatch({ seats: table(0, 6), seed: m * 7919, quiz });
+    while (e.phase !== L_PHASE.WINNER) e.update(0.05);
+    for (const id of quiz.usedIds) { if (asked.has(id)) repeats++; asked.add(id); }
+    seen = [...seen, ...quiz.usedIds];
+  }
+  assert.equal(repeats, 0, 'no repeats over ten matches');
+  assert.ok(asked.size > 180, `${asked.size} different questions over ten matches`);
+
+  // Difficulty follows the match: easy questions first in Trapdoor Royale, hard ones late.
+  const e = new RoyaleEngine();
+  const levels = [];
+  e.on('round', () => levels.push([e.round, e.question.difficulty, e.mode]));
+  e.startMatch({ seats: table(0, 12), seed: 9 });
+  while (e.phase !== R_PHASE.CHAMPION) e.update(0.05);
+  for (const [r, d, mode] of levels) {
+    if (mode === 'sudden' || r >= 6) assert.equal(d, 3, `round ${r} (${mode}) is hard`);
+    else if (r <= 2) assert.equal(d, 1, `round ${r} is easy`);
+  }
+
+  // Estimates: four options, none exactly right, sensible numbers.
+  const qb = new QuizBank(mulberry32(3));
+  for (let i = 0; i < 60; i++) {
+    const x = qb.estimate();
+    assert.equal(x.options.length, 4);
+    assert.ok(!x.options.includes(x.truth));
+    assert.equal(new Set(x.options).size, 4);
+    assert.ok(x.options.every((o) => Number.isFinite(o) && o > 0));
+  }
+});
+
+test('last lamp: round events and the three new survival games', async () => {
+  const { EVENTS } = await import('../js/games/lastLamp/lampEngine.js');
+  const events = {};
+  const kinds = {};
+  let struck = 0, relit = 0, beaconSteps = 0;
+  for (let seed = 1; seed <= 120; seed++) {
+    const e = new LampEngine();
+    e.on('question', (d) => {
+      if (!d.event) return;
+      events[d.event] = (events[d.event] || 0) + 1;
+      assert.ok(d.n >= 2, 'no event on the first question');
+      if (d.event === 'fog') { assert.equal(e.serialize().q.answers, null, 'fog keeps the answers off the wire'); assert.equal(e.answerFor(0, 0) || true, true); }
+    });
+    e.on('reveal', (d) => {
+      if (d.struck != null) { struck++; assert.ok(d.down.includes(d.struck)); assert.ok(!d.safe.includes(d.struck)); }
+      relit += (d.relit || []).length;
+    });
+    e.on('miniStart', (d) => { kinds[d.kind] = (kinds[d.kind] || 0) + 1; });
+    e.on('mini', (d) => {
+      const v = e.mini && e.mini.view();
+      if (v && v.kind === 'buoy' && v.stage === 'play') assert.equal(v.seq, null, 'the buoy pattern is hidden while you signal');
+      if (v && v.kind === 'manifest' && v.stage === 'q') assert.equal(v.correct, -1);
+      if (v && v.kind === 'tally' && v.stage !== 'reveal') assert.equal(v.truth, null);
+    });
+    e.on('finaleStart', () => { beaconSteps += e.players.reduce((s, p) => s + p.beacon, 0); });
+    e.startMatch({ seats: table(0, 6), seed });
+    while (e.phase !== L_PHASE.WINNER) e.update(0.05);
+  }
+  assert.deepEqual(Object.keys(events).sort(), Object.keys(EVENTS).sort(), 'every event turns up');
+  for (const k of ['tally', 'buoy', 'manifest']) assert.ok(kinds[k] > 10, `${k} played ${kinds[k]} times`);
+  assert.ok(struck > 0 && relit > 0 && beaconSteps > 0, JSON.stringify({ struck, relit, beaconSteps }));
 });
