@@ -50,7 +50,9 @@ const PNGS = [[178, 64, 48], [48, 110, 178], [70, 150, 90], [200, 160, 40], [130
 async function launch() {
   // Use the real GPU: software WebGL renders this scene at about one frame a second.
   const args = ['--ignore-gpu-blocklist', '--use-angle=d3d11', '--enable-gpu', '--autoplay-policy=no-user-gesture-required'];
-  for (const channel of ['msedge', 'chrome']) {
+  // Playwright's own headless shell first: it opens no OS windows at all. Headless Edge and
+  // Chrome each leave a hidden window per page that Windows can show in Alt+Tab.
+  for (const channel of [undefined, 'msedge', 'chrome']) {
     try { return await chromium.launch({ channel, args }); } catch { /* try the next browser */ }
   }
   throw new Error('No Edge or Chrome found');
