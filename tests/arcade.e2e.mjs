@@ -20,7 +20,8 @@ function ok(name, cond, detail) {
 
 async function launch() {
   const args = ['--ignore-gpu-blocklist', '--use-angle=d3d11', '--enable-gpu', '--autoplay-policy=no-user-gesture-required'];
-  for (const channel of ['msedge', 'chrome']) {
+  // The headless shell first: unlike headless Edge or Chrome it opens no OS windows.
+  for (const channel of [undefined, 'msedge', 'chrome']) {
     try { return await chromium.launch({ channel, args }); } catch { /* next */ }
   }
   throw new Error('No Edge or Chrome found');
@@ -76,7 +77,7 @@ try {
     ok('the title lists three shows', (await p.locator('#channels .channel').count()) === 3);
     ok('BidLock is picked by default', (await p.locator('.channel[aria-checked="true"]').getAttribute('data-game')) === 'bidlock' && await p.locator('#bidlock-opts').isVisible());
     await p.locator('.channel[data-game="royale"]').click();
-    ok('picking Trapdoor Royale shows its rules and hides the bankroll', (await p.locator('#title-how li').count()) === 4 && !(await p.locator('#bidlock-opts').isVisible()) && !(await p.locator('#hero').isVisible()));
+    ok('picking Trapdoor Royale shows its rules and hides the bankroll', (await p.locator('#title-how li').count()) === 5 && !(await p.locator('#bidlock-opts').isVisible()) && !(await p.locator('#hero').isVisible()));
     ok('the strap changes with the show', (await p.locator('#strap-text').textContent()) === 'Last One Standing');
     await p.locator('.channel[data-game="royale"]').focus();
     await p.keyboard.press('ArrowRight');
