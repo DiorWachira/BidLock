@@ -14,6 +14,7 @@ function markSeen() {
 }
 
 export const TOUR = [
+  { screen: 'title', target: '#channels', title: 'Three shows tonight', body: 'Pick a game here. BidLock is the $20 draft auction. Trapdoor Royale is a trivia elimination for twelve. Last Lamp is trivia survival in a storm. This walk-through covers BidLock.' },
   { screen: 'title', target: '#mode-budget', title: 'Pick your bankroll', body: 'Everyone at the table gets the same money. $20 is the classic: six lots to buy, so about three dollars each. $50 is looser and louder.' },
   { screen: 'title', target: '#mode-allin', title: 'Reserve or All-In', body: 'Normally the house holds back $1 for every slot you still have to fill, so you can never get stuck. Tick All-In to spend the lot. Any slot you cannot fill gets a $0 Penalty Dud.' },
   { screen: 'title', target: '#hero', title: 'Tonight\'s catalogue', body: 'Hover or tap a category to put a lot on the pedestal, with its real photograph. The lamps show hype, which everyone can see. The real value stays sealed until the verdict, and hype is sometimes wrong.' },

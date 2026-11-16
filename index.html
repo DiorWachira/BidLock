@@ -61,11 +61,14 @@
       <!-- Title screen -->
       <section id="title" aria-labelledby="title-h">
         <div class="title-panel">
-          <p class="slug">LIVE FROM STUDIO B · 140 LOTS · 14 CATEGORIES</p>
+          <p class="slug" id="title-slug">CH 20 · TONIGHT'S SCHEDULE · THREE SHOWS</p>
+          <div id="channels" class="channels" role="radiogroup" aria-label="Choose a game"></div>
           <canvas id="logo" class="logo"></canvas>
-          <h1 id="title-h" class="strap">The $<span id="strap-budget">20</span> Draft</h1>
-          <p class="tagline">One $20 budget. Six heated categories. Outbid, bait, and heist your way to the ultimate lineup.</p>
+          <h1 id="title-h" class="strap"><span id="strap-text">The $<span id="strap-budget">20</span> Draft</span></h1>
+          <p class="tagline" id="title-tagline">One $20 budget. Six heated categories. Outbid, bait, and heist your way to the ultimate lineup.</p>
+          <ol class="title-how" id="title-how" hidden></ol>
 
+          <div id="bidlock-opts" class="bidlock-opts">
           <fieldset id="mode-budget" class="seg">
             <legend>Bankroll</legend>
             <label><input type="radio" name="budget" value="20" checked><span><b>$20</b> Classic</span></label>
@@ -81,6 +84,7 @@
               <input type="checkbox" id="marathon">
               <span><b>Marathon</b> Eight rounds instead of six. Same money, thinner margins.</span>
             </label>
+          </div>
           </div>
 
           <div class="title-actions">
@@ -160,6 +164,9 @@
         </div>
       </section>
 
+      <!-- The other two games take over this section while they run -->
+      <section id="arcade" aria-label="Game"></section>
+
       <!-- Vault + heist -->
       <section id="board" aria-labelledby="board-title">
         <header class="board-head">
@@ -228,7 +235,7 @@
       <div id="lobby-menu" class="lobby-menu">
         <div class="lobby-card">
           <h3>Create a room</h3>
-          <p>You host. You get a five-character code to send to your friends. Your bankroll and mode choices on the title screen apply to the room.</p>
+          <p>You host. You get a five-character code to send to your friends, and you choose which of the three games the room plays. Everyone can vote.</p>
           <button id="lobby-create" class="btn btn-live" type="button"><span class="b-label">CREATE LOBBY</span></button>
         </div>
         <div class="lobby-card">
@@ -243,6 +250,8 @@
           <div><p class="lbl">ROOM CODE</p><canvas id="ec-room"></canvas></div>
           <button id="lobby-copy" class="btn" type="button"><span class="b-label">COPY INVITE CODE</span></button>
         </div>
+        <h3 class="lbl">TONIGHT'S GAME</h3>
+        <div id="lobby-games" class="lobby-games" role="group" aria-label="Choose the game"></div>
         <h3 class="lbl">AT THE TABLE</h3>
         <ol id="lobby-players" class="lobby-players"></ol>
         <label class="check" id="lobby-fill-wrap">
@@ -352,6 +361,9 @@
         <div><dt>THRIFT</dt><dd>The Bargain Sniper. Hoards through the first half, then sweeps the second.</dd></div>
       </dl>
 
+      <h3 class="lbl">THE OTHER SHOWS ON CH 20</h3>
+      <dl class="glossary" id="drawer-games"></dl>
+
       <h3 class="lbl">PHOTOGRAPHS</h3>
       <p class="drawer-note">Lot photographs are the lead images of the matching Wikipedia articles, loaded live from Wikimedia Commons under their free licences. Follow the "Photo: Wikipedia" link on any lot for its author and licence. If a photograph cannot be loaded, the lot shows an illustrated card instead.</p>
     </div>
@@ -364,7 +376,7 @@
     <section id="cue" class="cue" role="dialog" aria-labelledby="cue-title" aria-describedby="cue-body">
       <div class="cue-holes" aria-hidden="true"><i></i><i></i></div>
       <header>
-        <span id="cue-count" class="cue-count">CUE 1 / 12</span>
+        <span id="cue-count" class="cue-count">CUE 1 / 13</span>
         <button id="cue-close" class="cue-x" type="button" aria-label="Close the guide">×</button>
       </header>
       <h2 id="cue-title"></h2>
@@ -383,7 +395,7 @@
     <div class="cue-holes" aria-hidden="true"><i></i><i></i></div>
     <span class="cue-count">FLOOR MANAGER</span>
     <h2 id="invite-h">First time in the studio?</h2>
-    <p>Take the sixty-second floor walk before you go live. Twelve cue cards, skip any time.</p>
+    <p>Take the sixty-second floor walk before you go live. Thirteen cue cards, skip any time.</p>
     <footer>
       <button id="invite-skip" class="cue-btn" type="button">NOT NOW</button>
       <button id="invite-start" class="cue-btn cue-go" type="button">START</button>
