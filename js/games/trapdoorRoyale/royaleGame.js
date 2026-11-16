@@ -115,6 +115,7 @@ export class RoyaleGame extends GameBase {
         break;
       case 'round':
         this.hideCard();
+        this.el.q.hidden = false;
         if (this.stage) this.stage.newRound(e.alive.map((p) => p.id));
         this.lastPlatform = -1;
         this.lastTick = 99;
@@ -154,6 +155,7 @@ export class RoyaleGame extends GameBase {
         break;
       case 'champion':
         if (this.stage) this.stage.champion(d.id);
+        this.el.q.hidden = true;
         a.setTension(0);
         if (d.id === e.localId) a.fanfare(); else a.register();
         this.renderResults();

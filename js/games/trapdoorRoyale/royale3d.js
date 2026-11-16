@@ -229,6 +229,7 @@ export class RoyaleStage {
     this.timeBar.position.set(0, -2.98, 0.17);
     g.add(this.timeBar);
     for (const x of [-4.6, 4.6]) add(g, new THREE.CylinderGeometry(0.05, 0.05, 6, 6), this.steel, x, 5.8, 0);
+    this.board = g;
     g.position.set(0, 5.2, -12.6);
     g.rotation.x = -0.36;
     g.scale.setScalar(0.92);
@@ -283,6 +284,7 @@ export class RoyaleStage {
 
   // ---------- contestants ----------
   setPlayers(list, localId) {
+    this.board.visible = true;
     for (const f of this.figures.values()) { this.scene.remove(f.group); f.dispose(); }
     this.figures.clear();
     this.localId = localId;
@@ -418,6 +420,7 @@ export class RoyaleStage {
 
   champion(id) {
     this.championId = id;
+    this.board.visible = false; // the orbiting camera would swing straight into it
     const f = this.figures.get(id);
     if (f) { f.reset(); f.moveTo(0, 0, 0); f.cheer(30); }
     for (const p of this.platforms) { p.open = true; p.state = 'wrong'; }

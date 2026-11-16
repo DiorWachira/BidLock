@@ -370,6 +370,8 @@ function fromHost(msg) {
     else if (arcadeLoading) arcadeQueue.push(msg);
     return;
   }
+  // While a quiz game runs, BidLock's own messages do not apply.
+  if (arcade || arcadeLoading) return;
   if (msg.t === WIRE.START) {
     stopArcade();
     mySeat = Number.isInteger(msg.seat) ? msg.seat : 0;
@@ -466,7 +468,9 @@ async function loadGame(id) {
 
 async function launchArcade(id, arcRole, seats, seat = 0) {
   stopArcade();
-  engine.abort();
+  // Only stop a BidLock match that is actually running: on a host, an abort is
+  // broadcast, and guests would take it as the end of the new game too.
+  if (inMatch()) engine.abort();
   if (lobbyView) lobbyView.close();
   setRole(arcRole);
   setScreen('arcade');

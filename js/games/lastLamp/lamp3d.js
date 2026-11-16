@@ -406,14 +406,14 @@ export class LampStage {
     if (kind === 'planks') {
       const count = extra.count || 4;
       for (let i = 0; i < count; i++) { const p = this.planks[i]; p.g.visible = true; p.g.position.x = (i - (count - 1) / 2) * 1.15; }
-      crew.forEach((id, i) => place(id, (i - (crew.length - 1) / 2) * 0.8, 2.6));
+      crew.forEach((id, i) => place(id, (i - (crew.length - 1) / 2) * 1.3, 2.6));
       if (extra.saboteur != null) {
         const f = this.figures.get(extra.saboteur);
         if (f) { if (f.pos.y > CELLAR + 3) { f.reset(); f.place(0, CELLAR, 4.5); } f.moveTo(0, 4.7, CELLAR + 0.35); }
       }
     } else if (kind === 'tide') {
       this.raft.visible = true;
-      crew.forEach((id, i) => place(id, (i - (crew.length - 1) / 2) * 0.9, -0.4));
+      crew.forEach((id, i) => place(id, (i - (crew.length - 1) / 2) * 1.2, -0.4));
     } else if (kind === 'lifeboat') {
       this.boat.visible = true;
       crew.forEach((id, i) => place(id, (i % 2 ? 0.5 : -0.5), -2.8 + i * 0.9));

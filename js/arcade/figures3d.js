@@ -154,7 +154,7 @@ export class Figure {
     }
 
     this.plate = nameplate(local && String(name).toUpperCase() !== 'YOU' ? `${name} (you)` : name, color);
-    this.plate.position.y = 1.86 + (id % 2) * 0.36;
+    this.plate.position.y = 1.86 + (id % 3) * 0.34;
     this.group.add(this.plate);
   }
 

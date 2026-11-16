@@ -162,17 +162,17 @@ try {
     ok('first visit shows the invitation', await p.locator('#invite').isVisible());
     await p.locator('#invite-start').click();
     await p.waitForSelector('#cue');
-    ok('tour opens on cue 1', (await p.locator('#cue-count').textContent()) === 'CUE 1 / 12');
+    ok('tour opens on cue 1', (await p.locator('#cue-count').textContent()) === 'CUE 1 / 13');
     ok('focus moves into the cue card', await p.evaluate(() => document.activeElement.id === 'cue-next'));
     await shot(p, 'guide-title');
     await p.keyboard.press('ArrowRight');
     await p.keyboard.press('ArrowRight');
-    ok('arrow keys step the tour', (await p.locator('#cue-count').textContent()) === 'CUE 3 / 12');
+    ok('arrow keys step the tour', (await p.locator('#cue-count').textContent()) === 'CUE 3 / 13');
     await p.keyboard.press('ArrowLeft');
-    ok('left arrow goes back', (await p.locator('#cue-count').textContent()) === 'CUE 2 / 12');
-    for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowRight');
+    ok('left arrow goes back', (await p.locator('#cue-count').textContent()) === 'CUE 2 / 13');
+    for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowRight');
     await p.waitForFunction(() => window.__bidlock.screen === 'game');
-    ok('the tour crosses into a rehearsal match', (await p.locator('#cue-count').textContent()) === 'CUE 5 / 12');
+    ok('the tour crosses into a rehearsal match', (await p.locator('#cue-count').textContent()) === 'CUE 6 / 13');
     ok('the match is held while the guide is open', (await p.locator('#onair').textContent()) === 'STANDBY' && (await phase(p)) === 'BIDDING');
     const clock1 = await p.evaluate(() => window.__bidlock.engine.clock);
     await p.waitForTimeout(600);
@@ -209,7 +209,7 @@ try {
     await p.locator('#btn-help').click();
     await p.locator('#drawer-tour-screen').click();
     await p.waitForSelector('#cue');
-    ok('"cues for this screen" starts a short tour', (await p.locator('#cue-count').textContent()) === 'CUE 1 / 5');
+    ok('"cues for this screen" starts a short tour', (await p.locator('#cue-count').textContent()) === 'CUE 1 / 6');
     await p.locator('#cue-close').click();
     await ctx.close();
   }

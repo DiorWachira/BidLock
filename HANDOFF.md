@@ -23,24 +23,24 @@ Turn BidLock into three games on one "channel", sharing the lobby, sound and tri
 ### Done
 
 - [x] Branch and issue
-- [x] Shared pieces: `js/arcade/games.js`, `bots.js`, `quizBank.js`; `js/render/kit3d.js` (particle pool and helpers moved out of `stage3d.js`)
-- [x] Trapdoor Royale engine (`royaleEngine.js`) and Last Lamp engine (`lampEngine.js`, `undertowMinigames.js`), with `tests/arcade.test.mjs` passing
-- [x] Lobby: `setGame`, `vote`, per-game bot fill, generic `G` / `GT` / `GI` messages
+- [x] Shared pieces: `js/arcade/games.js`, `bots.js`, `quizBank.js`, `gameBase.js`, `figures3d.js`; `js/render/kit3d.js`
+- [x] Trapdoor Royale: engine, arena, screen
+- [x] Last Lamp: engine, survival games, lighthouse, screen
+- [x] Lobby: game picker, votes, per-game bot fill, `G` / `GT` / `GI` messages
+- [x] Title-screen channel guide and shell wiring in `main.js`
+- [x] Tests: `tests/arcade.test.mjs` (rules) and `tests/arcade.e2e.mjs` (browser), plus the BidLock suites
+- [x] README and screenshots
+- [x] Pull request opened
 
-### Left (in order)
+### Left
 
-- [ ] Shared 3D figure (`js/arcade/figures3d.js`)
-- [ ] Lobby dialog: game picker and vote buttons (`js/ui/lobbyView.js`)
-- [ ] Trapdoor Royale 3D arena and screen
-- [ ] Last Lamp 3D set and screen
-- [ ] Title-screen game selector and shell wiring in `main.js`
-- [ ] Browser tests, screenshots, fixes
-- [ ] README, pull request
+- Merge the pull request when the owner says so (merging deploys).
+- Not verified: sound in the two new games was never listened to, and rooms were only tested between tabs on one machine.
 
 ## How to check things
 
 - `node --test tests/engine.test.mjs tests/arcade.test.mjs` for the rules.
-- `node tests/e2e.mjs` for the browser (needs Edge or Chrome; uses the real GPU).
+- `node tests/e2e.mjs` (BidLock) and `node tests/arcade.e2e.mjs` (the quiz games) for the browser; they need Edge or Chrome and use the real GPU.
 - `node tools/serve.mjs` then `http://localhost:5173` to play.
 
 ## Standing rules for this repo

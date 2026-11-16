@@ -1017,3 +1017,12 @@ body[data-screen="arcade"] #stage { display: none; }
   .ag[data-game="royale"] .ag-top { right: auto; }
   .ag[data-game="royale"] .ag-toast { left: 34%; }
 }
+
+@media (max-width: 640px) {
+  /* Last Lamp on a phone: the keepers' flames become a strip under the chips. */
+  .ll-roll { left: 8px; right: 8px; width: auto; top: 64px; max-height: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+  .ll-roll li { padding: 3px 5px; gap: 4px; }
+  .ll-roll em, .ll-tag { display: none; }
+  .ll-flames i { width: 7px; height: 10px; }
+  .ag[data-game="lamp"] .ag-toast { top: 132px; }
+}
