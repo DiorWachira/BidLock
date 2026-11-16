@@ -26,6 +26,8 @@ export class RoyaleGame extends GameBase {
           <p class="ag-chip" id="tr-mode">TRAPDOOR ROYALE</p>
           <p class="ag-chip" id="tr-round"></p>
           <p class="ag-chip ag-left" id="tr-left"></p>
+          <p class="ag-chip ag-net" id="tr-net" hidden>SAFETY NET</p>
+          <button type="button" class="ag-skip" id="tr-skip" hidden>SKIP TO THE END</button>
         </div>
         <section class="ag-q" id="tr-q" aria-live="polite">
           <p class="lbl" id="tr-topic"></p>
@@ -34,14 +36,16 @@ export class RoyaleGame extends GameBase {
           <div class="tr-answers" id="tr-answers" role="group" aria-label="Answers: choose a platform"></div>
         </section>
         <p class="ag-toast" id="tr-note" role="status"></p>
-        <p class="ag-keys" id="tr-keys">Run: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows · Jump to a platform: <kbd>1</kbd>–<kbd>4</kbd> or click it · Shove: <kbd>E</kbd></p>
+        <p class="ag-keys" id="tr-keys">Run: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows · Jump to a platform: <kbd>1</kbd>–<kbd>4</kbd> or click it · Shove (pins everyone on your platform for 2 s, once a question): <kbd>E</kbd></p>
         <section class="ag-card" id="tr-card" hidden></section>
       </div>`;
     this.el = {
       view: this.$('#tr-view'), mode: this.$('#tr-mode'), round: this.$('#tr-round'), left: this.$('#tr-left'),
       q: this.$('#tr-q'), topic: this.$('#tr-topic'), text: this.$('#tr-text'), bar: this.$('#tr-bar'), answers: this.$('#tr-answers'),
-      note: this.$('#tr-note'), card: this.$('#tr-card'),
+      note: this.$('#tr-note'), card: this.$('#tr-card'), net: this.$('#tr-net'), skip: this.$('#tr-skip'),
     };
+    this.el.skip.addEventListener('click', () => this.skipToEnd());
+    this.ffNoted = false;
     this.el.answers.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-p]');
       if (b && !b.disabled) this.pick(Number(b.dataset.p));
@@ -67,11 +71,35 @@ export class RoyaleGame extends GameBase {
   pick(i) {
     const e = this.engine;
     const me = e.me;
-    if (!me || !me.alive || e.phase !== R_PHASE.QUESTION) return;
+    if (!me || e.phase !== R_PHASE.QUESTION) return;
+    if (!me.alive) {
+      // Out of the game: a call, for the record.
+      if (me.call === i) return;
+      this.shell.audio.blip();
+      this.myCall = i;
+      this.send('move', { to: i });
+      this.renderAnswers();
+      return;
+    }
     if (me.choice === i) return;
+    if (e.stunned(me)) { this.shell.audio.denied(); this.note('Pinned! You cannot move for a moment.'); return; }
     this.shell.audio.blip();
     this.send('move', { to: i });
     if (this.stage) this.stage.moveFigure(e.localId, i);
+  }
+
+  // Solo, once you are out: run the rest of the match now.
+  skipToEnd() {
+    if (this.role !== 'solo') return;
+    const e = this.engine;
+    for (let n = 0; n < 200000 && e.phase !== R_PHASE.CHAMPION; n++) e.update(1 / 30);
+  }
+
+  // Once every person at the table is out, the bots finish the match at speed.
+  speedBoost() {
+    const e = this.engine;
+    if (this.role === 'client' || this.isOver() || e.phase === R_PHASE.INTRO) return 1;
+    return e.humansAlive === 0 ? 4 : 1;
   }
 
   apply(seat, action, p) {
@@ -99,7 +127,7 @@ export class RoyaleGame extends GameBase {
   autopilot() {
     const e = this.engine;
     const me = e.me;
-    if (!me || !me.alive || e.phase !== R_PHASE.QUESTION || me.choice != null) return;
+    if (!me || !me.alive || e.phase !== R_PHASE.QUESTION || me.choice != null || e.stunned(me)) return;
     if (Math.random() < 0.03) this.pick(Math.floor(Math.random() * 4));
   }
 
@@ -115,6 +143,7 @@ export class RoyaleGame extends GameBase {
         break;
       case 'round':
         this.hideCard();
+        this.myCall = null;
         this.el.q.hidden = false;
         if (this.stage) this.stage.newRound(e.alive.map((p) => p.id));
         this.lastPlatform = -1;
@@ -129,8 +158,11 @@ export class RoyaleGame extends GameBase {
         this.renderAnswers();
         break;
       case 'shove':
-        if (this.stage) this.stage.shove(d.id);
+        if (this.stage) this.stage.shove(d.id, d.hit || []);
         a.knock(0.6);
+        if (d.hit && d.hit.includes(e.localId)) { a.denied(); this.note(`${this.nameOf(d.id)} shoved you: pinned for two seconds.`); }
+        else if (d.id === e.localId && d.hit && d.hit.length) this.note(`Shoved ${d.hit.length}: they are pinned for two seconds.`);
+        this.renderAnswers();
         break;
       case 'lock': {
         const choices = {};
@@ -146,9 +178,12 @@ export class RoyaleGame extends GameBase {
         this.renderQuestion();
         if (d.mercy) { a.register(); this.note('Nobody found it. The floor holds. Go again.'); break; }
         setTimeout(() => a.slam(), 450);
-        if (d.fallen.includes(e.localId)) { a.trombone(); this.note(d.slow === e.localId ? 'Right, but last to arrive. Down you go.' : 'Wrong platform. Down you go.'); }
+        if (d.fallen.includes(e.localId)) { a.trombone(); this.note(d.slow === e.localId ? 'Right, but last to arrive. Down you go.' : 'Wrong platform. Down you go. You can still call each answer from here.'); }
+        else if ((d.saved || []).includes(e.localId)) { a.register(); this.note('Wrong, but your safety net catches you. It is gone now.'); }
+        else if (d.net === e.localId) { a.fanfare(); this.note('First to the right platform: you earn a safety net. It saves you from one wrong answer.'); }
         else if (e.me && e.me.alive) { a.chime(); this.note(d.slow != null ? `${this.nameOf(d.slow)} was right but slowest, and drops.` : `${d.fallen.length} drop${d.fallen.length === 1 ? 's' : ''}. You are still standing.`); }
-        else this.note(`${d.fallen.length} more drop${d.fallen.length === 1 ? 's' : ''}.`);
+        else this.note(`${d.fallen.length} more drop${d.fallen.length === 1 ? 's' : ''}.${e.me && e.me.call === d.correct ? ' Your call was right.' : ''}`);
+        if (this.stage) this.stage.nets(e.players.filter((p) => p.net && p.alive).map((p) => p.id), d.saved || []);
         break;
       case 'recap':
         this.note(`${d.left} left on the floor.`);
@@ -186,7 +221,11 @@ export class RoyaleGame extends GameBase {
     this.el.mode.dataset.mode = e.mode;
     this.el.round.textContent = e.round ? `QUESTION ${e.round}` : '';
     const me = e.me;
-    this.el.left.textContent = `${e.alive.length} OF ${e.players.length} STANDING${me && !me.alive && !this.isOver() ? ' · YOU ARE OUT, WATCHING' : ''}`;
+    const out = me && !me.alive && !this.isOver();
+    this.el.left.textContent = `${e.alive.length} OF ${e.players.length} STANDING${out ? ` · YOU ARE OUT · ${me.calls} RIGHT CALL${me.calls === 1 ? '' : 'S'}` : ''}`;
+    this.el.net.hidden = !(me && me.alive && me.net);
+    this.el.skip.hidden = !(out && this.role === 'solo');
+    if (this.speedBoost() > 1 && !this.ffNoted) { this.ffNoted = true; this.note('Every person at this table is out: the bots finish it at speed.'); }
   }
 
   renderQuestion() {
@@ -204,15 +243,20 @@ export class RoyaleGame extends GameBase {
     const q = e.question;
     if (!q) return;
     const me = e.me;
-    const crowd = e.crowd();
-    if (this.stage) this.stage.setCrowd(crowd);
-    const live = e.phase === R_PHASE.QUESTION && me && me.alive;
+    // The crowd is shown in the arena, where you have to read it, not counted out here.
+    if (this.stage) this.stage.setCrowd(e.crowd());
+    const asking = e.phase === R_PHASE.QUESTION && me;
+    const pinned = asking && me.alive && e.stunned(me);
+    const calling = asking && !me.alive;
+    const live = asking && !pinned;
+    const mine = calling ? (this.role === 'client' ? this.myCall : me.call) : me ? me.choice : null;
+    this.el.answers.dataset.calling = calling ? '1' : '0';
     this.el.answers.innerHTML = q.answers.map((ans, i) => {
       let state = '';
       if (OPEN.has(e.phase) && e.correct >= 0) state = i === e.correct ? 'right' : 'wrong';
-      else if (me && me.choice === i) state = 'mine';
+      else if (mine === i) state = 'mine';
       return `<button type="button" class="tr-ans" data-p="${i}" data-state="${state}" style="--pc:${PLATFORM_COLORS[i]}" ${live ? '' : 'disabled'}>
-        <span class="tr-letter">${PLATFORM_LETTERS[i]}</span><span class="tr-text">${esc(ans)}</span><span class="tr-crowd" aria-label="${crowd[i]} on this platform">${crowd[i] ? '●'.repeat(Math.min(crowd[i], 12)) : ''}</span>
+        <span class="tr-letter">${PLATFORM_LETTERS[i]}</span><span class="tr-text">${esc(ans)}</span><span class="tr-crowd">${calling && mine === i ? 'YOUR CALL' : pinned && mine === i ? 'PINNED' : ''}</span>
       </button>`;
     }).join('');
   }
@@ -240,7 +284,7 @@ export class RoyaleGame extends GameBase {
     const me = e.me;
     const rows = e.ranking.map((id) => {
       const p = e.players[id];
-      return { name: this.rowName(p), color: this.colors[id], me: id === e.localId, note: p.alive ? 'CHAMPION' : `dropped on question ${p.outRound}` };
+      return { name: this.rowName(p), color: this.colors[id], me: id === e.localId, note: p.alive ? 'CHAMPION' : `dropped on question ${p.outRound}${p.isHuman && p.calls ? ` · ${p.calls} right call${p.calls === 1 ? '' : 's'}` : ''}` };
     });
     const place = e.ranking.indexOf(e.localId) + 1;
     this.showCard(this.resultsHtml({
@@ -266,7 +310,7 @@ export class RoyaleGame extends GameBase {
         if (this.lastTick - e.t >= interval || this.lastTick > R_RULES.scrambleAt + 0.1) { this.lastTick = e.t; this.shell.audio.tick(e.t <= 1); }
       }
       // Walking with the keys picks whichever platform you end up on.
-      if (this.stage && this.keys.size && e.me && e.me.alive) {
+      if (this.stage && this.keys.size && e.me && e.me.alive && !e.stunned(e.me)) {
         const dx = (this.keys.has('right') ? 1 : 0) - (this.keys.has('left') ? 1 : 0);
         const dz = (this.keys.has('down') ? 1 : 0) - (this.keys.has('up') ? 1 : 0);
         const under = this.stage.localMove(dx, dz, dt);

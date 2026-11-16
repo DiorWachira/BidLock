@@ -31,6 +31,8 @@ export const R_RULES = Object.freeze({
   suddenAt: 3, // three or fewer left: sudden death
   maxRounds: 40,
   shoveCooldown: 2.5,
+  stunTime: 2, // a shove pins rivals on your platform for this long
+  botShoveCutoff: 4, // bots never shove in the last seconds of a question
   scrambleAt: 3, // seconds left when the floor starts to panic
 });
 
@@ -81,6 +83,7 @@ export class RoyaleEngine {
     this.players = list.map((s, id) => ({
       id, name: s.name, isHuman: s.kind !== 'ai', bot: s.kind === 'ai' ? (s.bot || s.name) : null,
       alive: true, choice: null, choiceAt: 0, away: false, outRound: 0, shoveAt: -99, plan: [],
+      net: false, stunUntil: -1, shovedRound: 0, call: null, calls: 0,
     }));
     this.round = 0;
     this.ranking = [];
@@ -99,6 +102,8 @@ export class RoyaleEngine {
 
   get me() { return this.players[this.localId] || null; }
   get alive() { return this.players.filter((p) => p.alive); }
+  get humansAlive() { return this.players.filter((p) => p.alive && p.isHuman && !p.away).length; }
+  stunned(p) { return this.phase === R_PHASE.QUESTION && p.stunUntil > this.elapsed; }
   get elapsed() { return this.total - this.t; }
 
   crowd() {
@@ -123,8 +128,10 @@ export class RoyaleEngine {
   // ---------- input ----------
   moveFor(id, platform) {
     const p = this.players[id];
-    if (this.mirror || !p || !p.alive || this.phase !== R_PHASE.QUESTION) return false;
+    if (this.mirror || !p || this.phase !== R_PHASE.QUESTION) return false;
     if (!Number.isInteger(platform) || platform < 0 || platform >= R_RULES.platforms) return false;
+    if (!p.alive) return this._call(p, platform);
+    if (this.stunned(p)) return false;
     if (p.choice === platform) return false;
     p.choice = platform;
     p.choiceAt = this.elapsed;
@@ -132,14 +139,32 @@ export class RoyaleEngine {
     return true;
   }
 
-  // A shove is for show: it rocks whoever is standing nearby. It never changes an answer.
+  // Out of the game: you can still call which platform is right, for the record.
+  _call(p, platform) {
+    if (p.call === platform) return false;
+    p.call = platform;
+    this.emit('call', { id: p.id });
+    return true;
+  }
+
+  // A shove, once per question, pins everyone sharing your platform (or the hub) for two
+  // seconds: they cannot change platform while they are pinned. You are free to leave.
+  // Between questions it is just a shove.
   shoveFor(id) {
     const p = this.players[id];
     if (this.mirror || !p || !p.alive) return false;
     if (this.phase !== R_PHASE.QUESTION && this.phase !== R_PHASE.INTRO && this.phase !== R_PHASE.RECAP) return false;
     if (this.clock - p.shoveAt < R_RULES.shoveCooldown) return false;
+    let hit = [];
+    if (this.phase === R_PHASE.QUESTION) {
+      if (p.shovedRound === this.round || this.stunned(p)) return false;
+      p.shovedRound = this.round;
+      const until = this.elapsed + R_RULES.stunTime;
+      hit = this.alive.filter((o) => o.id !== p.id && o.choice === p.choice && !this.stunned(o)).map((o) => o.id);
+      for (const oid of hit) this.players[oid].stunUntil = until;
+    }
     p.shoveAt = this.clock;
-    this.emit('shove', { id });
+    this.emit('shove', { id, hit });
     return true;
   }
 
@@ -181,7 +206,7 @@ export class RoyaleEngine {
     this.question = { text: q.text, answers: q.answers, topic: q.topic };
     this.correct = q.correct;
     this.last = null;
-    for (const p of this.players) { p.choice = null; p.choiceAt = 0; p.plan = []; }
+    for (const p of this.players) { p.choice = null; p.choiceAt = 0; p.plan = []; p.stunUntil = -1; p.call = null; }
     this._phase(R_PHASE.QUESTION, time);
     for (const p of this.alive) if (!p.isHuman) this._planBot(p, time);
     this.emit('round', { n: this.round, mode: this.mode, time, left });
@@ -209,7 +234,8 @@ export class RoyaleEngine {
       plan.push({ at, to: final });
     }
     p.plan = plan;
-    p.shovePlan = prof.style === 'chaos' || prof.style === 'bold' ? at + 0.5 + rng() * 3 : -1;
+    const shoveAt = at + 0.5 + rng() * 3;
+    p.shovePlan = (prof.style === 'chaos' || prof.style === 'bold') && shoveAt < time - R_RULES.botShoveCutoff ? shoveAt : -1;
   }
 
   _bots() {
@@ -235,27 +261,44 @@ export class RoyaleEngine {
     let fallen = [];
     let mercy = false;
     let slow = null;
+    const saved = [];
+    let net = null;
     if (right.length === 0) {
       // Nobody found it. The floor holds, and everyone gets another go.
       mercy = true;
     } else {
       fallen = alive.filter((p) => p.choice !== this.correct).map((p) => p.id);
-      if (this.mode === 'sudden' && fallen.length === 0 && right.length > 1) {
+      // A safety net catches its owner once, on a wrong answer.
+      for (const id of fallen.slice()) {
+        const p = this.players[id];
+        if (!p.net) continue;
+        p.net = false;
+        saved.push(id);
+        fallen = fallen.filter((x) => x !== id);
+      }
+      if (this.mode === 'sudden' && fallen.length === 0 && saved.length === 0 && right.length > 1) {
         // Sudden death: everyone was right, so the last one onto the platform drops.
+        // Nets do not help here.
         const last = right.slice().sort((a, b) => b.choiceAt - a.choiceAt || b.id - a.id)[0];
         slow = last.id;
         fallen = [slow];
       }
+      // The first to reach the right platform (and stay) earns a net, outside sudden death.
+      if (this.mode !== 'sudden') {
+        const first = right.slice().sort((a, b) => a.choiceAt - b.choiceAt || a.id - b.id)[0];
+        if (first && !first.net) { first.net = true; net = first.id; }
+      }
     }
+    for (const p of this.players) if (!p.alive && p.call === this.correct) p.calls++;
     for (const id of fallen) {
       const p = this.players[id];
       p.alive = false;
       p.outRound = this.round;
     }
     this.ranking = [...fallen.slice().sort((a, b) => a - b), ...this.ranking];
-    this.last = { correct: this.correct, fallen, mercy, slow, crowd: this.crowd() };
+    this.last = { correct: this.correct, fallen, mercy, slow, saved, net, crowd: this.crowd() };
     this._phase(R_PHASE.DROP, R_RULES.dropTime);
-    this.emit('reveal', { correct: this.correct, answer: this.question.answers[this.correct], fallen, mercy, slow });
+    this.emit('reveal', { correct: this.correct, answer: this.question.answers[this.correct], fallen, mercy, slow, saved, net });
   }
 
   _champion() {
@@ -273,7 +316,7 @@ export class RoyaleEngine {
     return {
       o: this.options, ph: this.phase, t: this.t, tt: this.total, r: this.round, m: this.mode,
       q: this.question, c: open ? this.correct : -1, last: this.last, rank: this.ranking,
-      pl: this.players.map((p) => ({ id: p.id, n: p.name, h: p.isHuman ? 1 : 0, b: p.bot, al: p.alive ? 1 : 0, ch: p.choice, ca: p.choiceAt, aw: p.away ? 1 : 0, or: p.outRound })),
+      pl: this.players.map((p) => ({ id: p.id, n: p.name, h: p.isHuman ? 1 : 0, b: p.bot, al: p.alive ? 1 : 0, ch: p.choice, ca: p.choiceAt, aw: p.away ? 1 : 0, or: p.outRound, nt: p.net ? 1 : 0, su: p.stunUntil, sr: p.shovedRound, cl: p.call, cs: p.calls })),
     };
   }
 
@@ -290,6 +333,6 @@ export class RoyaleEngine {
     this.correct = s.c;
     this.last = s.last;
     this.ranking = s.rank;
-    this.players = s.pl.map((p) => ({ id: p.id, name: p.n, isHuman: !!p.h, bot: p.b, alive: !!p.al, choice: p.ch, choiceAt: p.ca, away: !!p.aw, outRound: p.or, shoveAt: -99, plan: [] }));
+    this.players = s.pl.map((p) => ({ id: p.id, name: p.n, isHuman: !!p.h, bot: p.b, alive: !!p.al, choice: p.ch, choiceAt: p.ca, away: !!p.aw, outRound: p.or, shoveAt: -99, plan: [], net: !!p.nt, stunUntil: p.su, shovedRound: p.sr, call: p.cl, calls: p.cs }));
   }
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mulberry32 } from '../js/engine/auctionEngine.js';
 import { RoyaleEngine, R_PHASE, R_RULES } from '../js/games/trapdoorRoyale/royaleEngine.js';
 import { LampEngine, L_PHASE, L_RULES } from '../js/games/lastLamp/lampEngine.js';
-import { MINI_KINDS, MINI_INFO } from '../js/games/lastLamp/undertowMinigames.js';
+import { MINI_KINDS, MINI_INFO, Capstan, Planks } from '../js/games/lastLamp/undertowMinigames.js';
 import { QuizBank, makeSum } from '../js/arcade/quizBank.js';
 import { BOT_ROSTER, botSeats, botAnswer } from '../js/arcade/bots.js';
 import { GAMES, gameById } from '../js/arcade/games.js';
@@ -220,7 +220,7 @@ test('last lamp: 150 matches reach the lamp room and keep every invariant', () =
         outcomes.steals += x.steals.length;
         outcomes.drowned += x.drowned.length;
         if (x.relit != null) outcomes.relit++;
-        for (const k of Object.values(x.moves)) assert.ok(k >= 0 && k <= 3);
+        for (const k of Object.values(x.moves)) assert.ok(k >= 0 && k <= 3 + e.R.wraithFloat, 'three marks, plus the wraith float');
       }
     }
     // Only keepers who answered wrong are sent down.
@@ -255,4 +255,97 @@ test('last lamp: a mirror follows the host, and inputs are checked', () => {
   m.hydrate(wire(h.serialize()), 1);
   assert.equal(m.players[0].answer, -2, 'a mirror knows that someone answered, not what');
   assert.equal(m.miniView(), null);
+});
+
+
+test('trapdoor royale: safety nets, pinning shoves and spectator calls', () => {
+  let nets = 0, saves = 0, pins = 0, calls = 0;
+  for (let seed = 1; seed <= 120; seed++) {
+    const e = new RoyaleEngine();
+    const rng = mulberry32(seed * 3);
+    e.on('reveal', (d) => {
+      if (d.net != null) { nets++; assert.equal(e.players[d.net].net, true); assert.ok(!d.fallen.includes(d.net)); }
+      for (const id of d.saved) { saves++; assert.ok(e.players[id].alive, 'a net keeps you up'); assert.equal(e.players[id].net, false, 'a net is used up'); }
+      if (d.slow != null) assert.ok(!d.saved.length);
+    });
+    e.on('shove', (d) => { pins += (d.hit || []).length; });
+    e.startMatch({ seats: table(2, 10), seed });
+    let steps = 0;
+    while (e.phase !== R_PHASE.CHAMPION && steps++ < 400000) {
+      if (e.phase === R_PHASE.QUESTION) {
+        for (const p of e.players) {
+          if (!p.isHuman || rng() > 0.05) continue;
+          const before = p.choice;
+          const ok = e.moveFor(p.id, Math.floor(rng() * 4));
+          if (!p.alive && ok) calls++;
+          if (p.alive && e.stunned(p)) assert.equal(p.choice, before, 'a pinned contestant cannot move');
+          if (rng() < 0.3) e.shoveFor(p.id);
+        }
+      }
+      e.update(0.05);
+    }
+    assert.equal(e.phase, R_PHASE.CHAMPION);
+    assert.equal(e.alive.length, 1);
+  }
+  assert.ok(nets > 50 && saves > 10 && pins > 10 && calls > 10, JSON.stringify({ nets, saves, pins, calls }));
+
+  // Shoves: once a question, only during it, and a pinned contestant cannot change platform.
+  const e = new RoyaleEngine();
+  e.startMatch({ seats: table(3, 0), seed: 2 });
+  while (e.phase !== R_PHASE.QUESTION) e.update(0.05);
+  e.players.forEach((p) => { p.plan = []; p.shovePlan = -1; });
+  e.moveFor(0, 1); e.moveFor(1, 1); e.moveFor(2, 2);
+  assert.equal(e.shoveFor(0), true);
+  assert.equal(e.stunned(e.players[1]), true, 'the rival on your platform is pinned');
+  assert.equal(e.stunned(e.players[2]), false, 'a rival elsewhere is not');
+  assert.equal(e.moveFor(1, 3), false);
+  assert.equal(e.moveFor(0, 3), true, 'the shover can leave');
+  assert.equal(e.shoveFor(0), false, 'one shove a question');
+  for (let i = 0; i < 45; i++) e.update(0.05);
+  assert.equal(e.moveFor(1, 3), true, 'the pin wears off');
+});
+
+test('last lamp: the capstan, the plank reward and wraith haunting', () => {
+  // Spinning means two pulls, so it only pays once the next socket is worse than about 1 in 3.
+  const fake = { rng: mulberry32(1), players: [{ isHuman: true }, { isHuman: true }], emit() {} };
+  const c = new Capstan(fake, [0, 1]);
+  c.bolt = 5;
+  const first = c.current;
+  c.input(first, { spin: false });
+  assert.equal(c.pulls, 1);
+  assert.equal(c.risk(), 1 / 5);
+  c.t = 0; c.update(0.01); // hand over the wheel
+  c.bolt = 5; c.at = 1;
+  const second = c.current;
+  assert.notEqual(second, first);
+  c.input(second, { spin: true });
+  assert.ok(c.pulls === 3 || c.done || c.stage === 'reveal', 'a spin is two pulls');
+
+  // A saboteur who catches someone gets a flame back.
+  let relit = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const e = new LampEngine();
+    e.on('miniResult', (d) => {
+      for (const id of d.relit || []) { relit++; assert.ok(e.players[id].flames <= e.R.flames); assert.equal(d.kind, 'planks'); }
+    });
+    e.startMatch({ seats: table(1, 5), seed });
+    while (e.phase !== L_PHASE.WINNER) e.update(0.05);
+  }
+  assert.ok(relit > 0, 'saboteurs do relight flames');
+
+  // Wraiths start the climb a step higher for every two right answers, up to the cap.
+  const e = new LampEngine();
+  e.startMatch({ seats: table(1, 5), seed: 4 });
+  e.players[1].ghost = true; e.players[1].flames = 0; e.players[1].wraithRight = 5;
+  e.players[2].ghost = true; e.players[2].flames = 0; e.players[2].wraithRight = 99;
+  e._finale();
+  assert.equal(e.players[1].step, 2);
+  assert.equal(e.players[2].step, e.R.maxHaunt);
+  assert.equal(e.R.stairs, 12);
+  // Tuning travels to a mirror.
+  const m = new LampEngine();
+  const h = new LampEngine();
+  h.startMatch({ seats: table(2, 1), seed: 6, tuning: { stairs: 9 } });
+  m.hydrate(wire(h.serialize()), 1);
+  assert.equal(m.R.stairs, 9);
 });

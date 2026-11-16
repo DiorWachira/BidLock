@@ -34,9 +34,9 @@ export const GAMES = Object.freeze([
     fillTo: 12,
     how: [
       'A question goes up with four answers, one per coloured platform.',
-      'Run to a platform with WASD or the arrow keys, press 1 to 4, or click it. You can change your mind until the clock runs out.',
-      'The three wrong platforms drop. So does anyone still dithering in the middle.',
-      'Rounds get faster. In sudden death the last one onto the right platform drops too. One champion is left.',
+      'Run to a platform with WASD or the arrow keys, press 1 to 4, or click it. You can change your mind until the clock runs out. E shoves: once a question, it pins everyone on your platform for two seconds.',
+      'The three wrong platforms drop. So does anyone still dithering in the middle. The first one onto the right platform earns a safety net, which catches them once.',
+      'Rounds get faster. In sudden death the last one onto the right platform drops too, nets or not. Once you are out, keep calling the answers for the record.',
     ],
   },
   {
@@ -53,8 +53,8 @@ export const GAMES = Object.freeze([
     how: [
       'Everyone answers each question in secret. Right, and you stay by the fire.',
       'Wrong, and you drop to the Undertow for a survival game. Lose it and one of your three flames goes out.',
-      'With no flames left you become a wraith. Wraiths keep answering.',
-      'It ends on the stairs: a true-or-false sprint to the lamp room. A wraith that catches a keeper takes their lantern.',
+      'With no flames left you become a wraith. Keep answering: every two right answers is a step of head start on the stairs.',
+      'It ends on a true-or-false sprint up the stairs. Wraiths drift up faster, and a wraith that catches a keeper takes their lantern.',
     ],
   },
 ]);
