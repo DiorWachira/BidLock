@@ -8,6 +8,8 @@ BidLock is a browser auction game. Everyone gets the same $20 and has to draft a
 
 Every lot is shown with a real photograph, in a glass-and-gold frame on a 3D auction pedestal. Two sealed mystery crates turn up mid-show, an Oracle may hand someone a hard general-knowledge question for a half-price steal, and before the scores are opened there is a vault and a ten-second heist.
 
+The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, and a room can move between all three without re-entering the code.
+
 It is a static site: plain HTML, CSS and ES modules. There is no build step, no server of ours, and no API key.
 
 ![Bidding on a lot](screenshots/game-dark.png)
@@ -19,6 +21,54 @@ It is a static site: plain HTML, CSS and ES modules. There is no build step, no 
 | Lobby | Six in a room | Heist |
 | --- | --- | --- |
 | ![Multiplayer lobby](screenshots/lobby.png) | ![A table of six](screenshots/room-six.png) | ![Heist board](screenshots/heist.png) |
+
+## Three shows on Channel 20
+
+Pick a show on the title screen, or in the lobby when you host a room. After a game, the host takes the room back to the lobby, everyone can vote on what to play next, and the next game starts without anyone re-entering the code.
+
+| Show | What it is | Players |
+| --- | --- | --- |
+| **BidLock** | The $20 draft auction described below | 1 to 6 people, bots fill to 4 |
+| **Trapdoor Royale** | Trivia elimination on a floating arena | 1 to 6 people, bots fill to 12 |
+| **Last Lamp** | Trivia survival in a lighthouse in a storm | 1 to 6 people, bots fill to 6 |
+
+All three share the room-code lobby, the sound engine and the trivia question engine (Open Trivia DB, with the built-in bank of 50 as the fallback).
+
+### Trapdoor Royale
+
+![Trapdoor Royale](screenshots/royale-question.png)
+
+A question goes up on the board over the arena with four answers, one per coloured platform. Run to the platform you trust (WASD or the arrow keys, `1` to `4`, or click the platform or its answer). You can change your mind until the clock runs out, and `E` shoves anyone standing near you, which is for show and never changes an answer. When time is up the bridges retract, the spotlights come on, and the three wrong platforms open like trapdoors. Anyone on them, or still dithering in the middle, falls.
+
+- **Standard rounds** give 12 seconds. From question 4 they are **speed rounds** of 7 seconds.
+- With three or fewer left it is **sudden death**: if everyone finds the right platform, the last one to arrive drops anyway.
+- If nobody finds it, the floor holds and everyone goes again.
+- The last one standing rises on the central pillar as champion.
+
+Up to twelve contestants: everyone in the room, then bots. Each bot has a knowledge level and a habit: some commit early, some follow the crowd, some change platform at the last second. The platforms use the Okabe-Ito colours, which stay distinct for common colour-vision differences, and always carry their letter too.
+
+### Last Lamp
+
+![Last Lamp](screenshots/lamp-climb.png)
+
+Six keepers, a storm, and three flames each, carried in a lantern. Every round everyone answers a question in secret. Keepers who answer right stay by the fire. Keepers who answer wrong drop through the hatch into **the Undertow** and play one of four survival games; the losers each lose a flame (two flames from question 5).
+
+| Survival game | How it works |
+| --- | --- |
+| **The Loose Plank** | A keeper who answered right secretly loosens one plank. Everyone below picks a plank to stand on. Whoever picked the loose one goes into the water. If nobody did, and the saboteur was one of the crew, the saboteur goes through it. |
+| **The Rising Tide** | Work the pump: five right quick sums each before the water wins. A wrong sum costs a stroke. |
+| **The Lifeboat** | Share or shove, chosen in secret. If everyone shares, everyone is safe. If anyone shoves, the shovers stay dry and everyone who shared goes over. If everyone shoves, everyone goes over. |
+| **The Storm Capstan** | Six sockets, one holds the lightning. On your turn, pull the next socket, or spin the wheel first and then pull. |
+
+A keeper with no flames becomes a **wraith**: see-through, still answering, and a wraith with two or more right answers starts the finale a step higher. The lamp can never go fully dark: if a game would snuff out the last keepers, they hold on with one flame.
+
+When two keepers or fewer are left, or after seven questions, the storm breaks the lower door and it ends on **the climb**. Each sprint shows three statements ("Who wrote Things Fall Apart? → Wole Soyinka"); mark each true or false, and every right mark is a step up. Keepers start higher the more flames they have. The water rises a step each sprint (two from the third), and a keeper it reaches is snuffed. A wraith that reaches a keeper's step takes their lantern, and the keeper becomes the wraith. The first keeper to reach the lamp room, step 10, lights the lamp and wins.
+
+### How the quiz games fit in
+
+Each quiz game is a pure rules engine (`royaleEngine.js`, `lampEngine.js` with `undertowMinigames.js`) plus a Three.js scene and a screen. They follow the same pattern as BidLock's auction engine: deterministic for a seed, with `serialize()` and `hydrate()` so a guest's browser mirrors the host's match. On the wire they use one envelope each way: the host sends `G` (an event and a snapshot) and `GT` (clock ticks); players send `GI` (an input). Nothing secret leaves the host before it is revealed: not the right answer, not anyone's secret answer, not the loosened plank, not who chose to shove, not which statements are true.
+
+In Trapdoor Royale the shared state is which platform each contestant has chosen, not where their feet are. Each browser runs the avatars to their platforms itself, so twelve contestants stay in step without streaming positions.
 
 ## Play
 
@@ -193,6 +243,14 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/ui/hud.js` | All in-match DOM painting, chyrons, boards, scorecard text |
 | `js/ui/lobbyView.js` | The lobby dialog |
 | `js/ui/guide.js` | First-run guide and help drawer |
+| `js/arcade/games.js` | The three shows: names, rules text, table sizes |
+| `js/arcade/bots.js` | The twelve quiz-game bots and how they answer |
+| `js/arcade/quizBank.js` | Questions, true-or-false trios and quick sums for the quiz games |
+| `js/arcade/gameBase.js` | What the quiz games share: stepping or mirroring the engine, the room, results |
+| `js/arcade/figures3d.js` | The articulated 3D contestants and keepers |
+| `js/render/kit3d.js` | Shared 3D helpers and the particle pool |
+| `js/games/trapdoorRoyale/` | Trapdoor Royale: rules engine, arena, screen |
+| `js/games/lastLamp/` | Last Lamp: rules engine, survival games, lighthouse, screen |
 | `tools/serve.mjs` | Tiny static server for local play and tests |
 | `tools/check-media.mjs` | Verifies every lot's photograph |
 
@@ -233,6 +291,8 @@ npm install
 npm test
 ```
 
+- `tests/arcade.test.mjs` runs in plain Node: 150 simulated matches of each quiz game at tables of 2 to 12, checking that exactly one champion is left, that all four survival games get played, that the lamp never goes fully dark, that secrets stay out of snapshots, and that a guest's mirror agrees with the host.
+- `tests/arcade.e2e.mjs` drives the browser through the channel guide, both quiz games solo, a room that votes, plays Trapdoor Royale, goes back to the lobby and plays Last Lamp, and both games on a 390 px phone.
 - `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
 - `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.
 

@@ -2,13 +2,15 @@
 
 import { EggcrateDisplay } from './eggcrate.js';
 import { cleanName, normalizeCode, MAX_PLAYERS } from '../net/lobbyManager.js';
+import { GAMES, gameById } from '../arcade/games.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export class LobbyView {
   // colorsFor(seats) -> css colours; summary() -> one line describing the host's settings.
-  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast }) {
+  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock' }) {
+    this.defaultGame = defaultGame;
     this.lobby = lobby;
     this.saveName = saveName;
     this.colorsFor = colorsFor;
@@ -22,7 +24,7 @@ export class LobbyView {
     this.el = {
       root: $('#lobby'), scrim: $('#lobby-scrim'), name: $('#lobby-name'), code: $('#lobby-code'),
       menu: $('#lobby-menu'), room: $('#lobby-room'), players: $('#lobby-players'), fill: $('#lobby-fill'), fillWrap: $('#lobby-fill-wrap'),
-      summary: $('#lobby-summary'), status: $('#lobby-status'), start: $('#lobby-start'), startLabel: $('#lobby-start .b-label'),
+      summary: $('#lobby-summary'), games: $('#lobby-games'), status: $('#lobby-status'), start: $('#lobby-start'), startLabel: $('#lobby-start .b-label'),
       create: $('#lobby-create'), join: $('#lobby-join'), copy: $('#lobby-copy'), leave: $('#lobby-leave'), close: $('#lobby-close'),
     };
     this.codeLamp = new EggcrateDisplay($('#ec-room'), { cols: 6, cell: 7, align: 'left', label: 'Room code' });
@@ -36,6 +38,13 @@ export class LobbyView {
     this.el.name.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
     this.el.name.addEventListener('change', () => this.saveName(this.el.name.value.trim()));
     this.el.fill.addEventListener('change', () => this.lobby.setFillBots(this.el.fill.checked));
+    // The host picks the game; everyone can vote for one.
+    this.el.games.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-game]');
+      if (!b) return;
+      if (this.lobby.isHost) { this.lobby.setGame(b.dataset.game); this.lobby.vote(b.dataset.game); }
+      else this.lobby.vote(b.dataset.game);
+    });
     this.el.copy.addEventListener('click', () => this._copy());
     this.el.leave.addEventListener('click', () => { this.lobby.leave(); this.status(''); });
     this.el.start.addEventListener('click', () => { if (this.lobby.canStart()) this.onStart(); });
@@ -97,6 +106,7 @@ export class LobbyView {
     this.status('Opening a room…');
     try {
       const code = await this.lobby.create(name);
+      this.lobby.setGame(this.defaultGame());
       this.status(`Room ${code} is open. Send the code to your friends.`);
     } catch (err) {
       this.status(err.message || 'Could not open a room.', true);
@@ -159,9 +169,20 @@ export class LobbyView {
     }
     const host = state.role === 'host';
     this.codeLamp.set(state.code);
+    const mineVote = state.votes ? state.votes[host ? 'host' : state.you] : null;
+    this.el.games.innerHTML = GAMES.map((g) => {
+      const n = Object.values(state.votes || {}).filter((x) => x === g.id).length;
+      const on = state.game === g.id;
+      return `<button type="button" class="lg-game" data-game="${g.id}" aria-pressed="${on}" ${state.inMatch ? 'disabled' : ''}>
+        <span class="ch-slot">${esc(g.slot)}</span><b>${esc(g.name)}</b><span class="ch-kind">${esc(g.kind)}</span>
+        <span class="lg-votes">${n ? `${n} vote${n === 1 ? '' : 's'}` : ''}${mineVote === g.id ? ' · yours' : ''}</span>
+        ${on ? '<span class="lg-on">NEXT UP</span>' : ''}</button>`;
+    }).join('');
+    this.el.games.dataset.host = host ? '1' : '0';
     const seats = host ? this.lobby.seats() : [
       ...state.players.filter((p) => !p.away).map((p) => ({ name: p.name, kind: 'human', pid: p.pid })),
     ];
+    const fillTo = gameById(state.game).fillTo;
     const colors = this.colorsFor(seats);
     const rows = seats.map((s, i) => {
       const p = state.players.find((x) => x.pid === s.pid);
@@ -171,12 +192,12 @@ export class LobbyView {
       if (s.kind === 'ai') tags.push('BOT');
       return `<li style="--who:${colors[i]}"><span class="lp-seat">${i + 1}</span><b>${esc(s.name)}</b>${tags.map((t) => `<span class="lp-tag">${t}</span>`).join('')}</li>`;
     });
-    if (!host && state.fillBots && seats.length < 4) rows.push('<li class="lp-note">The host has bots filling the empty seats.</li>');
+    if (!host && state.fillBots && seats.length < fillTo) rows.push(`<li class="lp-note">Bots fill the rest of the table, up to ${fillTo}.</li>`);
     for (let i = seats.length; i < Math.min(MAX_PLAYERS, Math.max(seats.length + 1, 2)); i++) rows.push(`<li class="lp-open"><span class="lp-seat">${i + 1}</span>Open seat</li>`);
     el.players.innerHTML = rows.join('');
     el.fillWrap.hidden = !host;
     el.fill.checked = state.fillBots;
-    el.summary.textContent = host ? this.summary() : 'The host chooses the bankroll and mode.';
+    el.summary.textContent = host ? this.summary() : `${gameById(state.game).name} is next. Tap a game to vote; the host decides.`;
     el.start.hidden = !host;
     el.start.disabled = !host || !this.lobby.canStart() || state.inMatch;
     el.startLabel.textContent = seats.length < 2 ? 'NEED 2 AT THE TABLE' : `START MATCH · ${seats.length} AT THE TABLE`;

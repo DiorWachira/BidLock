@@ -19,6 +19,8 @@ import { Guide, HelpDrawer } from './ui/guide.js';
 import { LobbyView } from './ui/lobbyView.js';
 import { MediaLoader } from './utils/mediaLoader.js';
 import { LobbyManager, WIRE, wireType, packEvent, unpackEvent, EMOTES } from './net/lobbyManager.js';
+import { GAMES, gameById } from './arcade/games.js';
+import { botSeats } from './arcade/bots.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 
@@ -50,6 +52,7 @@ const settings = {
   budget: store.get('budget', 20) === 50 ? 50 : 20,
   allIn: !!store.get('allIn', false),
   marathon: !!store.get('marathon', false),
+  game: gameById(store.get('game', 'bidlock')).id,
   volume: Math.max(0, Math.min(1, Number(store.get('volume', 0.7)) || 0)),
   muted: !!store.get('muted', false),
   theme: store.get('theme', 'dark') === 'light' ? 'light' : 'dark',
@@ -57,6 +60,8 @@ const settings = {
 };
 
 const HUMAN_COLORS = ['#f3ead6', '#e89b4c', '#6ea3d8', '#8fd08a', '#c58be0', '#e6d24a'];
+// Bots in the quiz games take these, after the people have taken theirs.
+const BOT_COLORS = ['#c0392b', '#2e86ab', '#8e6c8a', '#5c946e', '#d17a22', '#7f8c8d', '#b5838d', '#3d5a80', '#9a8c3a', '#6d4c41', '#4a8f8f', '#a33b6b'];
 const CAM_LABELS = { title: 'CAM 1 · WIDE', wide: 'CAM 1 · WIDE', bid: 'CAM 2 · FLOOR', pedestal: 'CAM 3 · PEDESTAL', gavel: 'CAM 4 · GAVEL', heist: 'CAM 5 · OVERHEAD', podium: 'CAM 6 · PODIUM', focus: 'CAM 7 · CONTENDER' };
 const STEP = 1 / 60;
 
@@ -67,6 +72,13 @@ function colorsFor(seats) {
     if (s.kind === 'ai') return (PERSONAS.find((p) => p.key === s.persona) || PERSONAS[0]).color;
     return HUMAN_COLORS[k++ % HUMAN_COLORS.length];
   });
+}
+
+// Seat colours for the quiz games: people first, then bots.
+function arcadeColors(seats) {
+  let h = 0;
+  let b = 0;
+  return seats.map((s) => (s.kind === 'ai' ? BOT_COLORS[b++ % BOT_COLORS.length] : HUMAN_COLORS[h++ % HUMAN_COLORS.length]));
 }
 
 const media = new MediaLoader(debug.mediaOff ? { fetchImpl: async () => { throw new Error('media switched off'); } } : {});
@@ -90,6 +102,11 @@ let camReturn = 0;
 let tickAcc = 0;
 let oracleBeat = 0;
 let lobbyView = null;
+// The quiz game that is running, if any (BidLock itself runs through the code above).
+let arcade = null;
+let arcadeLoading = false;
+let arcadeQueue = [];
+const gameModules = {};
 let autoDone = '';
 const verdict = { active: false, step: 0, total: 0, timer: 0, done: false };
 const heroCats = [...CATEGORIES, MYSTERY_CATEGORY];
@@ -187,13 +204,16 @@ function applyModes() {
   for (const r of document.querySelectorAll('input[name="budget"]')) r.checked = Number(r.value) === settings.budget;
   $('#allin').checked = settings.allIn;
   $('#marathon').checked = settings.marathon;
-  $('#strap-budget').textContent = String(settings.budget);
-  document.title = `BidLock — The $${settings.budget} Draft`;
+  const strapBudget = $('#strap-budget');
+  if (strapBudget) strapBudget.textContent = String(settings.budget);
+  if (settings.game === 'bidlock') document.title = `BidLock — The $${settings.budget} Draft`;
   S.setSign(`$${settings.budget}`);
   if (lobbyView) lobbyView.render(lobby.state);
 }
 
 function modeSummary() {
+  const g = gameById(lobby.state.game);
+  if (g.id !== 'bidlock') return `${g.name}: ${g.kind.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   return `$${settings.budget} bankroll · ${settings.marathon ? 'Marathon, 8 rounds' : '6 rounds'}${settings.allIn ? ' · All-In for every player' : ''}. Change these on the title screen.`;
 }
 
@@ -271,7 +291,7 @@ function showHero(catIndex) {
 }
 
 function heroAttract(dt) {
-  if (screen !== 'title' || isPaused() || (lobbyView && lobbyView.isOpen)) return;
+  if (screen !== 'title' || isPaused() || (lobbyView && lobbyView.isOpen) || settings.game !== 'bidlock') return;
   hero.auto += dt;
   if (hero.auto < 4.6 || seconds - hero.touched < 9) return;
   hero.auto = 0;
@@ -293,6 +313,7 @@ const lobby = new LobbyManager({
   onMessage: (msg) => fromHost(msg),
   onInput: (seat, msg) => fromPlayer(seat, msg),
   onClosed: () => {
+    stopArcade();
     engine.abort();
     audio.stopMusic();
     setRole('solo');
@@ -317,6 +338,7 @@ const act = {
 
 // Host: an input from a player's seat. Everything is checked again by the engine.
 function fromPlayer(seat, msg) {
+  if (arcade && role === 'host') { arcade.fromPlayer(seat, msg); return; }
   if (role !== 'host' || !inMatch() || !engine.contenders[seat]) return;
   const int = (v) => (Number.isInteger(v) ? v : -1);
   switch (msg.t) {
@@ -338,7 +360,20 @@ function fromPlayer(seat, msg) {
 
 // Client: something from the host.
 function fromHost(msg) {
+  if (msg.t === WIRE.START && msg.game && msg.game !== 'bidlock') {
+    launchArcade(msg.game, 'client', null, Number.isInteger(msg.seat) ? msg.seat : 0);
+    return;
+  }
+  if (msg.t === WIRE.GAME_EVENT || msg.t === WIRE.GAME_TICK) {
+    if (msg.t === WIRE.GAME_EVENT && msg.ev === 'abort') { clientArcadeEnded(); return; }
+    if (arcade) arcade.fromHost(msg);
+    else if (arcadeLoading) arcadeQueue.push(msg);
+    return;
+  }
+  // While a quiz game runs, BidLock's own messages do not apply.
+  if (arcade || arcadeLoading) return;
   if (msg.t === WIRE.START) {
+    stopArcade();
     mySeat = Number.isInteger(msg.seat) ? msg.seat : 0;
     setRole('client');
     if (lobbyView) lobbyView.close();
@@ -387,15 +422,170 @@ function launch(seats) {
 function startSolo() {
   if (lobby.active) lobby.leave();
   setRole('solo');
+  if (settings.game !== 'bidlock') {
+    const g = gameById(settings.game);
+    const me = String(store.get('name', '') || 'YOU').toUpperCase().slice(0, 14);
+    launchArcade(g.id, 'solo', [{ name: me, kind: 'human' }, ...botSeats(g.fillTo - 1, [me])]);
+    return;
+  }
+  stopArcade();
   launch(soloSeats());
 }
 
 function startRoom() {
   if (!lobby.canStart()) return;
+  const game = lobby.state.game;
   const seats = lobby.beginMatch();
   setRole('host');
   if (lobbyView) lobbyView.close();
+  if (game !== 'bidlock') { launchArcade(game, 'host', seats); return; }
+  stopArcade();
   launch(seats);
+}
+
+// ---------- the quiz games ----------
+// What a quiz game is given to work with.
+const shell = {
+  get root() { return $('#arcade'); },
+  audio,
+  debug,
+  colors: (seats) => arcadeColors(seats),
+  broadcast: (m) => lobby.broadcast(m),
+  send: (m) => lobby.send(m),
+  toast: (t) => hud.toast(t),
+  again: () => arcadeAgain(),
+  exit: () => arcadeExit(),
+};
+
+async function loadGame(id) {
+  if (!gameModules[id]) {
+    gameModules[id] = id === 'royale'
+      ? import('./games/trapdoorRoyale/royaleGame.js').then((m) => m.RoyaleGame)
+      : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
+  }
+  return gameModules[id];
+}
+
+async function launchArcade(id, arcRole, seats, seat = 0) {
+  stopArcade();
+  // Only stop a BidLock match that is actually running: on a host, an abort is
+  // broadcast, and guests would take it as the end of the new game too.
+  if (inMatch()) engine.abort();
+  if (lobbyView) lobbyView.close();
+  setRole(arcRole);
+  setScreen('arcade');
+  document.body.dataset.game = id;
+  hud.clearChyrons();
+  audio.unlock();
+  applySound();
+  audio.stopMusic();
+  if (id === 'royale') audio.startMusic();
+  audio.setTension(0);
+  arcadeLoading = true;
+  arcadeQueue = [];
+  let Game;
+  try {
+    Game = await loadGame(id);
+  } catch (err) {
+    console.error('[arcade] could not load the game:', err);
+    arcadeLoading = false;
+    hud.toast('That game could not be loaded. Check your connection and try again.');
+    arcadeExit();
+    return;
+  }
+  if (!arcadeLoading) return; // left while it was loading
+  arcadeLoading = false;
+  arcade = new Game(shell);
+  const seed = debug.seed != null ? debug.seed : (Date.now() ^ (Math.random() * 0x7fffffff)) & 0x7fffffff;
+  arcade.begin({ role: arcRole, seats, localSeat: seat, seed });
+  for (const m of arcadeQueue) arcade.fromHost(m);
+  arcadeQueue = [];
+  lastStep = performance.now();
+}
+
+function stopArcade() {
+  arcadeLoading = false;
+  arcadeQueue = [];
+  if (arcade) {
+    try { arcade.stop(); } catch (err) { console.warn('[arcade] stop failed:', err); }
+    arcade = null;
+  }
+  delete document.body.dataset.game;
+  audio.ambience(false);
+}
+
+// Solo: back to the title. Host: the room returns to the lobby. Guest: leave the room.
+function arcadeExit() {
+  const was = role;
+  if (arcade && was === 'host') arcade.engine.abort(); // reaches every guest
+  if (was === 'host') lobby.endMatch();
+  if (was === 'client') lobby.leave();
+  stopArcade();
+  setRole('solo');
+  toTitle();
+  if (was === 'host' && lobbyView) lobbyView.open();
+  else $('#btn-start').focus({ preventScroll: true });
+}
+
+function arcadeAgain() {
+  if (role === 'client') return;
+  if (role === 'host') { lobby.endMatch(); startRoom(); return; }
+  startSolo();
+}
+
+// Guest: the host ended the game; back to the lobby.
+function clientArcadeEnded() {
+  stopArcade();
+  setRole('solo');
+  toTitle();
+  if (lobbyView && lobby.active) lobbyView.open();
+}
+
+// ---------- the title-screen channel guide ----------
+function buildChannels() {
+  const wrap = $('#channels');
+  wrap.innerHTML = GAMES.map((g) => `<button type="button" class="channel" role="radio" data-game="${g.id}" aria-checked="false"><span class="ch-slot">${esc(g.slot)}</span><span class="ch-name">${esc(g.name)}</span><span class="ch-kind">${esc(g.kind)}</span></button>`).join('');
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.channel');
+    if (!b) return;
+    audio.unlock();
+    audio.blip();
+    selectGame(b.dataset.game);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    const ids = GAMES.map((g) => g.id);
+    const i = ids.indexOf(settings.game);
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+    selectGame(ids[(i + d + ids.length) % ids.length]);
+    wrap.querySelector(`[data-game="${settings.game}"]`).focus();
+  });
+  const drawerGames = $('#drawer-games');
+  if (drawerGames) drawerGames.innerHTML = GAMES.filter((g) => g.id !== 'bidlock').map((g) => `<div><dt>${esc(g.name)}</dt><dd>${esc(g.tagline)} ${g.how.map(esc).join(' ')}</dd></div>`).join('');
+}
+
+function selectGame(id) {
+  const g = gameById(id);
+  settings.game = g.id;
+  store.set('game', g.id);
+  document.body.dataset.pick = g.id;
+  for (const b of document.querySelectorAll('#channels .channel')) {
+    const on = b.dataset.game === g.id;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  $('#bidlock-opts').hidden = g.id !== 'bidlock';
+  $('#hero').hidden = g.id !== 'bidlock';
+  $('#strap-text').innerHTML = g.id === 'bidlock' ? `The $<span id="strap-budget">${settings.budget}</span> Draft` : esc(g.strap);
+  $('#title-tagline').textContent = g.tagline;
+  const how = $('#title-how');
+  how.hidden = g.id === 'bidlock';
+  how.innerHTML = g.id === 'bidlock' ? '' : g.how.map((h) => `<li>${esc(h)}</li>`).join('');
+  $('#title-slug').textContent = `CH 20 · ${g.slot} · ${g.kind.toUpperCase()} · ${g.people.toUpperCase()}`;
+  if (logo) logo.set(g.marquee);
+  if (g.id === 'bidlock') { if (screen === 'title') showHero(hero.cat); } else { S.clearLot(); S.setPrice(0); S.setSign('LIVE'); }
+  document.title = g.id === 'bidlock' ? `BidLock — The $${settings.budget} Draft` : `${g.name} — BidLock Arcade`;
 }
 
 function startMatch() {
@@ -416,6 +606,7 @@ function toTitle() {
   setCam('title');
   hero.touched = -99;
   showHero(hero.cat);
+  selectGame(settings.game);
 }
 
 // Solo: back to the title. Host: the room stays open and everyone returns to the lobby.
@@ -891,6 +1082,10 @@ function wireInput(guide, drawer) {
       if (k === 'Enter' && !onControl) { e.preventDefault(); if (lobby.active) lobbyView.open(); else startSolo(); }
       return;
     }
+    if (screen === 'arcade') {
+      if (arcade && !e.repeat && (!onControl || /^[1-6eEwasdWASD]$|^Arrow/.test(k)) && arcade.key(e)) e.preventDefault();
+      return;
+    }
     if (screen === 'game') {
       const or = engine.oracle;
       if (engine.phase === PHASE.ORACLE) {
@@ -915,6 +1110,9 @@ function wireInput(guide, drawer) {
       if (!verdict.done) finishVerdict(); else if (role !== 'client') startMatch();
     }
   });
+
+  document.addEventListener('keyup', (e) => { if (arcade) arcade.keyup(e); });
+  window.addEventListener('blur', () => { if (arcade && arcade.keys) arcade.keys.clear(); });
 
   document.addEventListener('visibilitychange', () => {
     setPaused('hidden', document.hidden && inMatch() && role === 'solo');
@@ -980,6 +1178,7 @@ function advance(now) {
   const cap = document.hidden ? 1.5 : 0.25;
   const dt = Math.min(cap, Math.max(0, (now - lastStep) / 1000));
   lastStep = now;
+  if (arcade) { arcade.advance(dt); return; }
   if (!inMatch() || isPaused()) return;
 
   if (role === 'client') {
@@ -1036,6 +1235,13 @@ function frame(now) {
   hud.frame(engine, seconds);
   logo.speed = screen === 'title' ? 1 : 0;
   logo.tick(reduceMotion.matches ? 0 : dt);
+  if (screen === 'arcade') {
+    // The studio stays dark while another game has the screen.
+    if (arcade) {
+      try { arcade.frame(dt, reduceMotion.matches); } catch (err) { console.error('[arcade] frame failed:', err); }
+    }
+    return;
+  }
   if (stage) {
     try {
       stage.update(dt, reduceMotion.matches);
@@ -1061,7 +1267,7 @@ let logo;
 async function boot() {
   const logoCanvas = $('#logo');
   logoCanvas.style.width = '100%';
-  logo = new EggcrateDisplay(logoCanvas, { cols: 7, cell: 8, align: 'center', marquee: true, label: 'BidLock' });
+  logo = new EggcrateDisplay(logoCanvas, { cols: 8, cell: 8, align: 'center', marquee: true, label: 'Now showing' });
   logo.set('BIDLOCK');
 
   const guide = new Guide({
@@ -1086,11 +1292,13 @@ async function boot() {
     onClose: () => setPaused('drawer', false),
     onTour: (mode) => guide.start(mode),
   });
+  buildChannels();
   lobbyView = new LobbyView({
     lobby,
     loadName: () => store.get('name', ''),
     saveName: (n) => store.set('name', String(n).slice(0, 14)),
-    colorsFor,
+    colorsFor: (seats) => (lobby.state.game === 'bidlock' ? colorsFor(seats) : arcadeColors(seats)),
+    defaultGame: () => settings.game,
     summary: modeSummary,
     onStart: startRoom,
     onOpen: () => {},
@@ -1125,6 +1333,7 @@ async function boot() {
   S.setContenders(defaultUnits(), 0);
   applyTheme();
   applyModes();
+  selectGame(settings.game);
   setScreen('title');
   setCam('title');
   showHero(0);
@@ -1144,7 +1353,8 @@ async function boot() {
   window.__bidlock = {
     engine, settings, guide, drawer, lobby, media, act,
     get stage() { return stage; }, get screen() { return screen; }, get role() { return role; },
-    startMatch: startSolo, startRoom, finishVerdict,
+    startMatch: startSolo, startRoom, finishVerdict, selectGame,
+    get arcade() { return arcade; },
   };
 }
 

@@ -62,6 +62,11 @@ export class SoundEngine {
         this._applyVolume();
       }
       if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+      // Ambience asked for before the first click starts as soon as audio is allowed.
+      if (this.wantAmbience) {
+        const go = () => { if (this.wantAmbience && this.ready) { this.wantAmbience = false; this.ambience(true); } };
+        if (this.ready) go(); else this.ctx.resume().then(go).catch(() => {});
+      }
       return true;
     } catch (err) {
       this.failed = true;
@@ -272,6 +277,52 @@ export class SoundEngine {
       this._tone({ type: 'sine', freq: NOTE(n), t, dur: 0.5, peak: 0.2 });
       this._tone({ type: 'triangle', freq: NOTE(n + 12), t, dur: 0.25, peak: 0.06 });
     });
+  }
+
+  // A long roll of thunder: a low crack, then rumbling noise that dies away.
+  thunder() {
+    this._noise({ dur: 0.25, peak: 0.5, type: 'lowpass', freq: 2400, to: 400 });
+    this._noise({ t: 0.05, dur: 3.2, peak: 0.45, type: 'lowpass', freq: 240, to: 50, q: 0.7 });
+    this._tone({ type: 'sine', freq: 48, to: 28, t: 0.05, dur: 2.6, peak: 0.55, attack: 0.08 });
+  }
+
+  // Storm outside: wind (slowly swept noise) and rain (soft high noise), until switched off.
+  ambience(on) {
+    this.wantAmbience = false;
+    if (!this.ready) { this.wantAmbience = on; return; }
+    const ctx = this.ctx;
+    if (on && !this.amb) {
+      const mk = (type, freq, q, gain) => {
+        const src = ctx.createBufferSource();
+        src.buffer = this.noiseBuf;
+        src.loop = true;
+        const f = ctx.createBiquadFilter();
+        f.type = type;
+        f.frequency.value = freq;
+        f.Q.value = q;
+        const g = ctx.createGain();
+        g.gain.value = 0;
+        g.gain.setTargetAtTime(gain, ctx.currentTime, 1.2);
+        src.connect(f); f.connect(g); g.connect(this.sfx);
+        src.start();
+        return { src, f, g };
+      };
+      const wind = mk('bandpass', 400, 1.6, 0.12);
+      const rain = mk('highpass', 5200, 0.5, 0.05);
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      lfo.frequency.value = 0.09;
+      depth.gain.value = 260;
+      lfo.connect(depth); depth.connect(wind.f.frequency);
+      lfo.start();
+      this.amb = { parts: [wind, rain], lfo };
+    } else if (!on && this.amb) {
+      const { parts, lfo } = this.amb;
+      this.amb = null;
+      const end = ctx.currentTime + 0.8;
+      for (const p of parts) { p.g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.2); p.src.stop(end); }
+      lfo.stop(end);
+    }
   }
 
   // ---------- backing track ----------

@@ -13,6 +13,8 @@
 //                    DOUBLE_OR_NOTHING_CHOICE, VAULT_LOCK, DONE, EMOTE
 
 import { PERSONAS } from '../engine/aiBidders.js';
+import { GAMES, gameById } from '../arcade/games.js';
+import { botSeats } from '../arcade/bots.js';
 
 export const WIRE = Object.freeze({
   // host -> players
@@ -38,6 +40,11 @@ export const WIRE = Object.freeze({
   DONE: 'DONE',
   EMOTE: 'EMOTE',
   BYE: 'BYE',
+  VOTE: 'VOTE',
+  // the quiz games: one generic envelope each way
+  GAME_EVENT: 'G',
+  GAME_TICK: 'GT',
+  GAME_INPUT: 'GI',
 });
 
 const EVENT_WIRE = {
@@ -264,7 +271,7 @@ export class LobbyManager {
   }
 
   _blank() {
-    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null };
+    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {} };
   }
 
   get isHost() { return this.state.role === 'host'; }
@@ -335,6 +342,7 @@ export class LobbyManager {
     }
     if (!known) return;
     if (msg.t === WIRE.BYE) { this._playerLeft(conn.id); return; }
+    if (msg.t === WIRE.VOTE) { if (!this.state.inMatch) this._vote(conn.id, msg.game); return; }
     // Everything else is a game input. The seat comes from the connection, never from the message.
     this.onInput(known.seat, msg);
   }
@@ -350,15 +358,17 @@ export class LobbyManager {
       this._set({ players: this.state.players.map((x) => (x.pid === pid ? { ...x, away: true } : x)) });
       this.onInput(p.seat, { t: WIRE.BYE });
     } else {
-      this._set({ players: this.state.players.filter((x) => x.pid !== pid).map((x, i) => ({ ...x, seat: i })) });
+      const votes = { ...this.state.votes };
+      delete votes[pid];
+      this._set({ votes, players: this.state.players.filter((x) => x.pid !== pid).map((x, i) => ({ ...x, seat: i })) });
     }
     this._sendLobby();
   }
 
   _sendLobby() {
     if (!this.isHost) return;
-    const { code, players, fillBots, inMatch } = this.state;
-    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, you: pid });
+    const { code, players, fillBots, inMatch, game, votes } = this.state;
+    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, you: pid });
   }
 
   setFillBots(on) {
@@ -367,15 +377,42 @@ export class LobbyManager {
     this._sendLobby();
   }
 
-  // The table for the next match: everyone in the room, then house rivals up to four seats.
-  seats() {
+  // Host: which game the room plays next.
+  setGame(id) {
+    if (!this.isHost || this.state.inMatch || !GAMES.some((g) => g.id === id)) return;
+    this._set({ game: id });
+    this._sendLobby();
+  }
+
+  // Anyone: say which game you would like next. The host still decides.
+  vote(id) {
+    if (!GAMES.some((g) => g.id === id) || this.state.inMatch) return;
+    if (this.isHost) this._vote('host', id);
+    else if (this.isClient && this.hostConn) this.hostConn.send({ t: WIRE.VOTE, game: id });
+  }
+
+  _vote(pid, id) {
+    if (!GAMES.some((g) => g.id === id)) return;
+    this._set({ votes: { ...this.state.votes, [pid]: id } });
+    this._sendLobby();
+  }
+
+  voteCount(id) {
+    return Object.values(this.state.votes).filter((v) => v === id).length;
+  }
+
+  // The table for the next match: everyone in the room, then bots up to the game's size.
+  // BidLock seats its three house rivals; the quiz games draw from the bot roster.
+  seats(gameId = this.state.game) {
+    const game = gameById(gameId);
     const people = this.state.players.filter((p) => !p.away).map((p) => ({ name: p.name, kind: 'human', pid: p.pid }));
+    if (!this.state.fillBots) return people;
+    const want = Math.max(0, game.fillTo - people.length);
+    if (game.id !== 'bidlock') return [...people, ...botSeats(want, people.map((p) => p.name))];
     const bots = [];
-    if (this.state.fillBots) {
-      for (const persona of PERSONAS) {
-        if (people.length + bots.length >= BOT_FILL_TO) break;
-        bots.push({ name: persona.name, kind: 'ai', persona: persona.key });
-      }
+    for (const persona of PERSONAS) {
+      if (bots.length >= want) break;
+      bots.push({ name: persona.name, kind: 'ai', persona: persona.key });
     }
     return [...people, ...bots];
   }
@@ -393,7 +430,7 @@ export class LobbyManager {
     this._sendLobby();
     for (const p of players) {
       const conn = this.conns.get(p.pid);
-      if (conn) conn.send({ t: WIRE.START, seat: p.seat, ...extra });
+      if (conn) conn.send({ t: WIRE.START, seat: p.seat, game: this.state.game, ...extra });
     }
     return seats;
   }
@@ -401,7 +438,7 @@ export class LobbyManager {
   // Host: the match is over; the room is open again.
   endMatch() {
     if (!this.isHost) return;
-    this._set({ inMatch: false, players: this.state.players.filter((p) => !p.away).map((p, i) => ({ ...p, seat: i })) });
+    this._set({ inMatch: false, votes: {}, players: this.state.players.filter((p) => !p.away).map((p, i) => ({ ...p, seat: i })) });
     this._sendLobby();
   }
 
@@ -455,7 +492,7 @@ export class LobbyManager {
       return;
     }
     if (msg.t === WIRE.LOBBY) {
-      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you });
+      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {} });
       if (this._joinWait) this._joinWait.resolve();
       return;
     }
