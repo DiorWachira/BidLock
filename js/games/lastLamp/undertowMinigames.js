@@ -8,16 +8,21 @@
 // Losers each lose one flame. Pure rules: no DOM, audio or rendering.
 
 import { botProfile } from '../../arcade/bots.js';
-import { makeSum } from '../../arcade/quizBank.js';
+import { makeSum, guessError } from '../../arcade/quizBank.js';
 
-export const MINI_KINDS = Object.freeze(['planks', 'tide', 'lifeboat', 'capstan']);
+export const MINI_KINDS = Object.freeze(['planks', 'tide', 'lifeboat', 'capstan', 'tally', 'buoy', 'manifest']);
 
 export const MINI_INFO = Object.freeze({
   planks: { name: 'The Loose Plank', line: 'One plank has been loosened. Catch someone and the saboteur relights a flame.' },
   tide: { name: 'The Rising Tide', line: 'Work the pump. Five right sums before the water wins.' },
   lifeboat: { name: 'The Lifeboat', line: 'Share the boat, or shove. Choose in secret.' },
   capstan: { name: 'The Storm Capstan', line: 'Six sockets, one holds the lightning. Pull, or spin and pull twice.' },
+  tally: { name: 'The Tally', line: 'A number question. You do not have to be right: just do not be the furthest off.' },
+  buoy: { name: 'The Bell Buoy', line: 'Watch the buoy\'s light, then signal the pattern back. One slip and you are under.' },
+  manifest: { name: 'The Manifest', line: 'Three quick questions from the wreck\'s papers. Get two right to climb out.' },
 });
+
+export const BUOY_SIGNS = Object.freeze(['▲', '●', '■', '◆']);
 
 class Mini {
   constructor(engine, crew) {
@@ -161,13 +166,13 @@ export class Tide extends Mini {
   _planBot(id) {
     const rng = this.e.rng;
     const prof = this.prof(id);
-    const gap = 1.5 + (1 - prof.skill) * 2.2 + rng() * 0.9;
+    const gap = 1.1 + (1 - prof.skill) * 1.5 + rng() * 0.7;
     this.plans.push({
       at: this.clock + gap,
       run: () => {
         if (this.stage !== 'play' || this.progress[id] >= this.target) return;
         const p = this.problem[id];
-        const right = rng() < prof.skill + 0.12;
+        const right = rng() < Math.min(0.97, prof.skill + 0.25);
         this.input(id, { option: right ? p.correct : (p.correct + 1) % 3 });
         this._planBot(id);
       },
@@ -331,6 +336,212 @@ export class Capstan extends Mini {
 
 // Which games can be played by this crew? The plank needs someone to loosen it and
 // someone to step; the lifeboat needs two to argue over it.
+// ---------- 5. The Tally: be anything but the furthest off ----------
+export class Tally extends Mini {
+  constructor(engine, crew) {
+    super(engine, crew);
+    this.kind = 'tally';
+    this.est = engine.quiz.estimate();
+    this.t = 12;
+    this.total = 12;
+    this.pick = {};
+    const rng = engine.rng;
+    const err = (o) => guessError(o, this.est.truth, this.est.year);
+    const best = this.est.options.reduce((a, o, i) => (err(o) < err(this.est.options[a]) ? i : a), 0);
+    for (const id of crew) {
+      if (!this.isBot(id)) continue;
+      const choice = rng() < this.prof(id).skill + 0.1 ? best : Math.floor(rng() * 4);
+      this.plans.push({ at: 2 + rng() * 6, run: () => this.input(id, { option: choice }) });
+    }
+  }
+
+  input(id, { option } = {}) {
+    if (this.stage !== 'play' || !this.crew.includes(id)) return false;
+    if (!Number.isInteger(option) || option < 0 || option > 3) return false;
+    const first = this.pick[id] == null;
+    this.pick[id] = option;
+    if (first) this.e.emit('mini', { kind: 'tally', step: 'chosen', id });
+    if (this.crew.every((c) => this.pick[c] != null)) this.t = Math.min(this.t, 1.0);
+    return true;
+  }
+
+  update(dt) {
+    this.clock += dt;
+    if (this.stage === 'reveal') { this._tickReveal(dt); return; }
+    this._runPlans();
+    this.t -= dt;
+    if (this.t > 0) return;
+    const rng = this.e.rng;
+    for (const id of this.crew) if (this.pick[id] == null) this.pick[id] = Math.floor(rng() * 4);
+    const { truth, options, year } = this.est;
+    const err = (i) => guessError(options[i], truth, year);
+    const bestOption = [0, 1, 2, 3].reduce((a, i) => (err(i) < err(a) ? i : a), 0);
+    const picked = [...new Set(this.crew.map((id) => this.pick[id]))];
+    let losers;
+    if (picked.length === 1) {
+      // Everyone agreed: safe only if they agreed on the best guess going.
+      losers = picked[0] === bestOption ? [] : this.crew.slice();
+    } else {
+      const worst = Math.max(...picked.map(err));
+      losers = this.crew.filter((id) => err(this.pick[id]) === worst);
+    }
+    this._finish(losers, { truth, picks: { ...this.pick }, best: bestOption });
+  }
+
+  view() {
+    return {
+      kind: 'tally', stage: this.stage, t: this.t, total: this.total, crew: this.crew,
+      q: { text: this.est.text, unit: this.est.unit, options: this.est.options },
+      chosen: this.crew.filter((id) => this.pick[id] != null),
+      picks: this.stage === 'reveal' ? { ...this.pick } : {},
+      truth: this.stage === 'reveal' ? this.est.truth : null,
+      losers: this.losers,
+    };
+  }
+}
+
+// ---------- 6. The Bell Buoy: watch a pattern, signal it back ----------
+export class Buoy extends Mini {
+  constructor(engine, crew) {
+    super(engine, crew);
+    this.kind = 'buoy';
+    const rng = engine.rng;
+    this.length = Math.min(7, 4 + Math.floor((engine.round || 1) / 2));
+    this.seq = Array.from({ length: this.length }, () => Math.floor(rng() * 4));
+    this.stage = 'show';
+    this.showTime = 1.2 + this.length * 0.75;
+    this.t = this.showTime;
+    this.progress = {};
+    this.failed = {};
+    for (const id of crew) { this.progress[id] = 0; this.failed[id] = false; }
+  }
+
+  _planBots() {
+    const rng = this.e.rng;
+    for (const id of this.crew) {
+      if (!this.isBot(id)) continue;
+      const p = Math.max(0.15, 0.45 + this.prof(id).skill * 0.5 - (this.length - 4) * 0.09);
+      const slip = rng() < p ? -1 : Math.floor(rng() * this.length);
+      let at = 1 + rng();
+      for (let k = 0; k < this.length; k++) {
+        const sign = k === slip ? (this.seq[k] + 1 + Math.floor(rng() * 3)) % 4 : this.seq[k];
+        this.plans.push({ at: this.clock + at, run: () => this.input(id, { sign }) });
+        at += 0.45 + rng() * 0.6;
+        if (k === slip) break;
+      }
+    }
+  }
+
+  input(id, { sign } = {}) {
+    if (this.stage !== 'play' || !this.crew.includes(id) || this.failed[id] || this.progress[id] >= this.length) return false;
+    if (!Number.isInteger(sign) || sign < 0 || sign > 3) return false;
+    if (sign === this.seq[this.progress[id]]) this.progress[id]++;
+    else this.failed[id] = true;
+    this.e.emit('mini', { kind: 'buoy', step: 'signal', id, ok: !this.failed[id], progress: this.progress[id] });
+    if (this.crew.every((c) => this.failed[c] || this.progress[c] >= this.length)) this.t = Math.min(this.t, 0.8);
+    return true;
+  }
+
+  update(dt) {
+    this.clock += dt;
+    if (this.stage === 'reveal') { this._tickReveal(dt); return; }
+    this._runPlans();
+    this.t -= dt;
+    if (this.t > 0) return;
+    if (this.stage === 'show') {
+      this.stage = 'play';
+      this.t = 6 + this.length * 1.1;
+      this.total = this.t;
+      this._planBots();
+      this.e.emit('mini', { kind: 'buoy', step: 'go' });
+      return;
+    }
+    this._finish(this.crew.filter((id) => this.failed[id] || this.progress[id] < this.length), { seq: this.seq.slice() });
+  }
+
+  view() {
+    // The pattern is only on the wire while it is being shown, and at the end.
+    return {
+      kind: 'buoy', stage: this.stage, t: this.t, total: this.stage === 'show' ? this.showTime : this.total, crew: this.crew, length: this.length,
+      seq: this.stage === 'play' ? null : this.seq.slice(),
+      progress: { ...this.progress }, failed: { ...this.failed }, losers: this.losers,
+    };
+  }
+}
+
+// ---------- 7. The Manifest: three quick questions, two to pass ----------
+export class Manifest extends Mini {
+  constructor(engine, crew) {
+    super(engine, crew);
+    this.kind = 'manifest';
+    this.qs = [0, 1, 2].map(() => engine.quiz.next({ difficulty: 1 }));
+    this.n = 0;
+    this.need = 2;
+    this.score = {};
+    this.answers = {};
+    for (const id of crew) this.score[id] = 0;
+    this._open();
+  }
+
+  _open() {
+    this.stage = 'q';
+    this.t = 8;
+    this.total = 8;
+    this.answers = {};
+    const rng = this.e.rng;
+    const q = this.qs[this.n];
+    for (const id of this.crew) {
+      if (!this.isBot(id)) continue;
+      const right = rng() < Math.min(0.95, this.prof(id).skill + 0.18);
+      const pick = right ? q.correct : (q.correct + 1 + Math.floor(rng() * 3)) % 4;
+      this.plans.push({ at: this.clock + 1.5 + rng() * 4.5, run: () => this.input(id, { answer: pick }) });
+    }
+  }
+
+  input(id, { answer } = {}) {
+    if (this.stage !== 'q' || !this.crew.includes(id) || this.answers[id] != null) return false;
+    if (!Number.isInteger(answer) || answer < 0 || answer > 3) return false;
+    this.answers[id] = answer;
+    this.e.emit('mini', { kind: 'manifest', step: 'answered', id });
+    if (this.crew.every((c) => this.answers[c] != null)) this.t = Math.min(this.t, 0.6);
+    return true;
+  }
+
+  update(dt) {
+    this.clock += dt;
+    if (this.stage === 'reveal') { this._tickReveal(dt); return; }
+    this._runPlans();
+    this.t -= dt;
+    if (this.t > 0) return;
+    if (this.stage === 'q') {
+      const q = this.qs[this.n];
+      for (const id of this.crew) if (this.answers[id] === q.correct) this.score[id]++;
+      this.stage = 'show';
+      this.t = 1.8;
+      this.e.emit('mini', { kind: 'manifest', step: 'show', n: this.n });
+      return;
+    }
+    if (this.stage === 'show') {
+      this.n++;
+      if (this.n < this.qs.length) { this._open(); return; }
+      this._finish(this.crew.filter((id) => this.score[id] < this.need), { score: { ...this.score } });
+    }
+  }
+
+  view() {
+    const q = this.qs[Math.min(this.n, this.qs.length - 1)];
+    const open = this.stage !== 'q';
+    return {
+      kind: 'manifest', stage: this.stage, t: this.t, total: this.total, crew: this.crew, n: this.n, of: this.qs.length, need: this.need,
+      q: { text: q.text, answers: q.answers, topic: q.topic }, correct: open ? q.correct : -1,
+      answered: this.crew.filter((id) => this.answers[id] != null),
+      answers: open ? { ...this.answers } : {}, score: { ...this.score }, losers: this.losers,
+    };
+  }
+}
+
+// Which games can be played by this crew? The plank needs someone to loosen it and
+// someone to step; the lifeboat needs two to argue over it.
 export function playable(kind, crew, safeLiving) {
   if (kind === 'planks') return crew.length >= 2 || (crew.length === 1 && safeLiving.length >= 1);
   if (kind === 'lifeboat') return crew.length >= 2;
@@ -345,5 +556,8 @@ export function makeMini(kind, engine, crew, safeLiving) {
   }
   if (kind === 'tide') return new Tide(engine, crew);
   if (kind === 'lifeboat') return new Lifeboat(engine, crew);
+  if (kind === 'tally') return new Tally(engine, crew);
+  if (kind === 'buoy') return new Buoy(engine, crew);
+  if (kind === 'manifest') return new Manifest(engine, crew);
   return new Capstan(engine, crew);
 }

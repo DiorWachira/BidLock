@@ -8,6 +8,8 @@
 // knowledge, with a built-in bank of 50 as the fallback. Like the auction engine, this
 // file has no DOM, audio or rendering in it.
 
+import { QUESTIONS, questionId } from '../arcade/questionBank.js';
+
 export const ORACLE = Object.freeze({
   chance: 0.45, // per gap between rounds, from the end of round 2
   max: 2, // per match
@@ -20,6 +22,7 @@ export const ORACLE = Object.freeze({
 });
 
 export const OPENTDB_URL = 'https://opentdb.com/api.php?amount=30&difficulty=hard&type=multiple';
+
 
 const NAMED = {
   quot: '"', apos: "'", amp: '&', lt: '<', gt: '>', nbsp: ' ', shy: '', hellip: '…', ndash: '–', mdash: '—',
@@ -107,49 +110,120 @@ function shuffleWith(list, rng) {
   return a;
 }
 
+const DIFFICULTY = { easy: 1, medium: 2, hard: 3 };
+export const OPENTDB_PARTY_URL = 'https://opentdb.com/api.php?amount=50&type=multiple';
+export const OPENTDB_TOKEN_URL = 'https://opentdb.com/api_token.php?command=request';
+
+// One shape for every question, wherever it came from.
+function entry(id, text, correct, wrong, topic, difficulty, style, source) {
+  return { id, text, correct, wrong, topic: topic || 'General knowledge', difficulty, style: style || 'mc', source };
+}
+
 export class TriviaBank {
-  constructor(rng = Math.random) {
+  // pool 'oracle': hard general knowledge only, for BidLock's Oracle.
+  // pool 'party':  everything, at every difficulty, for the quiz games.
+  // seen: ids asked in earlier matches on this device; they are kept back until the
+  // unseen ones run out.
+  constructor(rng = Math.random, { pool = 'oracle', seen = null } = {}) {
     this.rng = rng;
-    this.local = shuffleWith(FALLBACK_QUESTIONS, rng);
+    this.pool = pool;
+    this.seen = new Set(seen || []);
+    this.taken = new Set();
+    this.usedIds = [];
     this.remote = [];
     this.source = 'built-in';
-    this.used = 0;
+    const base = FALLBACK_QUESTIONS.map((q) => entry(questionId(q[0], q[1]), q[0], q[1], q.slice(2, 5), q[5], 3, 'mc', 'local'));
+    const extra = QUESTIONS
+      .filter((q) => pool === 'party' || (q[0] === 3 && q[1] !== 'Pop culture'))
+      .map((q) => entry(questionId(q[3], q[4]), q[3], q[4], q.slice(5, 8), q[1], q[0], q[2], 'local'));
+    this.local = shuffleWith([...base, ...extra], rng);
   }
 
+  get size() { return this.local.length + this.remote.length; }
+
   // Try the Open Trivia DB. Never throws: on any failure the built-in bank is used.
-  async load({ fetchImpl = null, url = OPENTDB_URL, timeoutMs = 6000 } = {}) {
+  // A session token (kept by the caller between matches) stops the service sending
+  // the same question twice until it has run out of them.
+  async load({ fetchImpl = null, url = null, timeoutMs = 6000, token = null, onToken = null } = {}) {
     const doFetch = fetchImpl || ((...a) => fetch(...a));
-    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+    const get = async (u) => {
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+      try {
+        const res = await doFetch(u, ctrl ? { signal: ctrl.signal } : undefined);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json();
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+    const base = url || (this.pool === 'party' ? OPENTDB_PARTY_URL : OPENTDB_URL);
     try {
-      const res = await doFetch(url, ctrl ? { signal: ctrl.signal } : undefined);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      let tok = token;
+      if (!tok && onToken) {
+        const t = await get(OPENTDB_TOKEN_URL).catch(() => null);
+        if (t && t.response_code === 0 && t.token) { tok = t.token; onToken(tok); }
+      }
+      let data = await get(tok ? `${base}&token=${encodeURIComponent(tok)}` : base);
+      // 3: the token has expired. 4: it has seen every question. Start a fresh one.
+      if (data && (data.response_code === 3 || data.response_code === 4) && onToken) {
+        const t = await get(OPENTDB_TOKEN_URL).catch(() => null);
+        if (t && t.response_code === 0 && t.token) { onToken(t.token); data = await get(`${base}&token=${encodeURIComponent(t.token)}`); }
+      }
       if (!data || data.response_code !== 0 || !Array.isArray(data.results)) throw new Error('no questions');
       const good = [];
       for (const r of data.results) {
         if (!r || r.type !== 'multiple' || !Array.isArray(r.incorrect_answers) || r.incorrect_answers.length !== 3) continue;
         const category = decodeEntities(r.category || '');
-        if (!KEEP_TOPIC.test(category)) continue;
+        if (this.pool === 'oracle' && !KEEP_TOPIC.test(category)) continue;
         const topic = category.replace(/^Science: /, '').replace(/^Entertainment: /, '');
-        const row = [decodeEntities(r.question), decodeEntities(r.correct_answer), ...r.incorrect_answers.map(decodeEntities), topic];
-        if (new Set(row.slice(1, 5)).size === 4) good.push(row);
+        const text = decodeEntities(r.question);
+        const correct = decodeEntities(r.correct_answer);
+        const wrong = r.incorrect_answers.map(decodeEntities);
+        if (new Set([correct, ...wrong]).size !== 4) continue;
+        const d = DIFFICULTY[r.difficulty] || (this.pool === 'oracle' ? 3 : 2);
+        good.push(entry(questionId(text, correct), text, correct, wrong, topic, d, 'mc', 'remote'));
       }
-      this.remote = good;
-      if (good.length) this.source = 'Open Trivia DB';
-      return good.length;
+      this.remote = good.filter((q) => !this.seen.has(q.id));
+      if (this.remote.length) this.source = 'Open Trivia DB';
+      return this.remote.length;
     } catch {
       return 0;
-    } finally {
-      if (timer) clearTimeout(timer);
     }
   }
 
-  // The next question, with its four answers in a shuffled order.
-  next() {
-    const row = this.remote.length ? this.remote.shift() : this.local[this.used++ % this.local.length];
-    const answers = shuffleWith(row.slice(1, 5), this.rng);
-    return { text: row[0], answers, correct: answers.indexOf(row[1]), topic: row[5] || 'General knowledge' };
+  // The next question, with its four answers in a shuffled order. `difficulty` (1-3)
+  // is a preference: the nearest available level is used if that one has run out.
+  next({ difficulty = null } = {}) {
+    let q = this._pick(difficulty, true) || this._pick(difficulty, false);
+    if (!q) {
+      // Every question has been asked this match: start round the bank again.
+      this.taken.clear();
+      q = this._pick(difficulty, false);
+    }
+    this.taken.add(q.id);
+    this.usedIds.push(q.id);
+    const answers = shuffleWith([q.correct, ...q.wrong], this.rng);
+    return { id: q.id, text: q.text, answers, correct: answers.indexOf(q.correct), topic: q.topic, difficulty: q.difficulty, style: q.style };
+  }
+
+  _pick(difficulty, unseenOnly) {
+    const ok = (q) => !this.taken.has(q.id) && (!unseenOnly || !this.seen.has(q.id));
+    const remote = this.remote.filter(ok);
+    const local = this.local.filter(ok);
+    if (!remote.length && !local.length) return null;
+    const near = (list, gap) => (difficulty == null ? list : list.filter((q) => Math.abs(q.difficulty - difficulty) <= gap));
+    for (const gap of [0, 1, 2]) {
+      const r = near(remote, gap);
+      const l = near(local, gap);
+      if (!r.length && !l.length) continue;
+      // Fresh questions from the service come first, in the order it sent them, but the
+      // built-in styles (odd one out, which came first, sayings) still get a turn.
+      const useRemote = r.length && (!l.length || this.pool === 'oracle' || this.rng() < 0.6);
+      if (useRemote) return r[0];
+      return l[Math.floor(this.rng() * l.length)];
+    }
+    return null;
   }
 }
 

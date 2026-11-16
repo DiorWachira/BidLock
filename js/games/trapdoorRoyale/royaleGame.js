@@ -1,7 +1,8 @@
 // TRAPDOOR ROYALE — the screen: the 3D arena, the question board in the HUD, the
 // controls, and the results. Rules live in royaleEngine.js; the arena in royale3d.js.
 
-import { RoyaleEngine, R_PHASE, R_RULES, PLATFORM_LETTERS } from './royaleEngine.js';
+import { RoyaleEngine, R_PHASE, R_RULES, PLATFORM_LETTERS, TWISTS } from './royaleEngine.js';
+import { STYLE_LABEL } from '../../arcade/questionBank.js';
 
 // The right answer is only shown once the floor has dropped.
 const OPEN = new Set([R_PHASE.DROP, R_PHASE.RECAP, R_PHASE.CHAMPION]);
@@ -25,6 +26,7 @@ export class RoyaleGame extends GameBase {
         <div class="ag-top">
           <p class="ag-chip" id="tr-mode">TRAPDOOR ROYALE</p>
           <p class="ag-chip" id="tr-round"></p>
+          <p class="ag-chip ag-twist" id="tr-twist" hidden></p>
           <p class="ag-chip ag-left" id="tr-left"></p>
           <p class="ag-chip ag-net" id="tr-net" hidden>SAFETY NET</p>
           <button type="button" class="ag-skip" id="tr-skip" hidden>SKIP TO THE END</button>
@@ -42,7 +44,7 @@ export class RoyaleGame extends GameBase {
     this.el = {
       view: this.$('#tr-view'), mode: this.$('#tr-mode'), round: this.$('#tr-round'), left: this.$('#tr-left'),
       q: this.$('#tr-q'), topic: this.$('#tr-topic'), text: this.$('#tr-text'), bar: this.$('#tr-bar'), answers: this.$('#tr-answers'),
-      note: this.$('#tr-note'), card: this.$('#tr-card'), net: this.$('#tr-net'), skip: this.$('#tr-skip'),
+      note: this.$('#tr-note'), card: this.$('#tr-card'), net: this.$('#tr-net'), skip: this.$('#tr-skip'), twist: this.$('#tr-twist'),
     };
     this.el.skip.addEventListener('click', () => this.skipToEnd());
     this.ffNoted = false;
@@ -82,6 +84,7 @@ export class RoyaleGame extends GameBase {
       return;
     }
     if (me.choice === i) return;
+    if (i === e.blocked) { this.shell.audio.denied(); this.note('That platform has crumbled.'); return; }
     if (e.stunned(me)) { this.shell.audio.denied(); this.note('Pinned! You cannot move for a moment.'); return; }
     this.shell.audio.blip();
     this.send('move', { to: i });
@@ -148,10 +151,30 @@ export class RoyaleGame extends GameBase {
         if (this.stage) this.stage.newRound(e.alive.map((p) => p.id));
         this.lastPlatform = -1;
         this.lastTick = 99;
+        this.wasDark = e.dark;
         this.renderQuestion();
         a.whoosh();
         a.setTension(d.mode === 'sudden' ? 0.8 : d.mode === 'speed' ? 0.5 : 0.2);
-        this.note(d.mode === 'sudden' ? `Sudden death. ${d.left} left. Right and slowest still drops.` : d.mode === 'speed' && d.n === R_RULES.speedFromRound ? 'Speed rounds: seven seconds from now on.' : '');
+        this.el.twist.hidden = !d.twist;
+        if (d.twist) {
+          this.el.twist.textContent = `TWIST: ${TWISTS[d.twist].name.toUpperCase()}`;
+          a.siren();
+          this.note(TWISTS[d.twist].line);
+        } else {
+          this.note(d.mode === 'sudden' ? `Sudden death. ${d.left} left. Right and slowest still drops.` : d.mode === 'speed' && d.n === R_RULES.speedFromRound ? 'Speed rounds: seven seconds from now on.' : '');
+        }
+        break;
+      case 'shuffle':
+        this.renderQuestion();
+        a.alarm();
+        this.note('Shuffle! Every answer has jumped to another platform.');
+        break;
+      case 'crumble':
+        if (this.stage) this.stage.crumble(d.platform, d.fallen);
+        a.slam();
+        if (d.fallen.includes(e.localId)) { a.trombone(); this.note(`Platform ${PLATFORM_LETTERS[d.platform]} crumbles under you.`); }
+        else this.note(`Platform ${PLATFORM_LETTERS[d.platform]} crumbles${d.fallen.length ? `, taking ${d.fallen.length} with it` : ''}. It was wrong, and it is closed now.`);
+        this.renderAnswers();
         break;
       case 'move':
         if (this.stage && d.id !== e.localId) this.stage.moveFigure(d.id, d.to);
@@ -180,6 +203,7 @@ export class RoyaleGame extends GameBase {
         setTimeout(() => a.slam(), 450);
         if (d.fallen.includes(e.localId)) { a.trombone(); this.note(d.slow === e.localId ? 'Right, but last to arrive. Down you go.' : 'Wrong platform. Down you go. You can still call each answer from here.'); }
         else if ((d.saved || []).includes(e.localId)) { a.register(); this.note('Wrong, but your safety net catches you. It is gone now.'); }
+        else if (d.held >= 0 && e.me && e.me.alive && e.me.choice === d.held) { a.register(); this.note(`Wrong, but platform ${PLATFORM_LETTERS[d.held]} held. Lucky.`); }
         else if (d.net === e.localId) { a.fanfare(); this.note('First to the right platform: you earn a safety net. It saves you from one wrong answer.'); }
         else if (e.me && e.me.alive) { a.chime(); this.note(d.slow != null ? `${this.nameOf(d.slow)} was right but slowest, and drops.` : `${d.fallen.length} drop${d.fallen.length === 1 ? 's' : ''}. You are still standing.`); }
         else this.note(`${d.fallen.length} more drop${d.fallen.length === 1 ? 's' : ''}.${e.me && e.me.call === d.correct ? ' Your call was right.' : ''}`);
@@ -232,9 +256,12 @@ export class RoyaleGame extends GameBase {
     const e = this.engine;
     const q = e.question;
     if (!q) { this.el.answers.innerHTML = ''; return; }
-    this.el.topic.textContent = `${q.topic.toUpperCase()} · ${MODE_LABEL[e.mode]}`;
+    const style = STYLE_LABEL[q.style] ? ` · ${STYLE_LABEL[q.style]}` : '';
+    const twist = e.twist ? ` · ${TWISTS[e.twist].name.toUpperCase()}` : '';
+    this.el.topic.textContent = `${q.topic.toUpperCase()}${style} · ${MODE_LABEL[e.mode]}${twist}`;
     this.el.text.textContent = q.text;
-    if (this.stage) this.stage.drawBoard({ title: `Question ${e.round} · ${MODE_LABEL[e.mode]}`, text: q.text, answers: q.answers, correct: OPEN.has(e.phase) ? e.correct : -1 });
+    const dark = !q.answers || e.dark;
+    if (this.stage) this.stage.drawBoard({ title: `Question ${e.round} · ${MODE_LABEL[e.mode]}${twist}`, text: q.text, answers: dark ? null : q.answers, correct: OPEN.has(e.phase) ? e.correct : -1, correct2: OPEN.has(e.phase) ? e.correct2 : -1 });
     this.renderAnswers();
   }
 
@@ -251,12 +278,14 @@ export class RoyaleGame extends GameBase {
     const live = asking && !pinned;
     const mine = calling ? (this.role === 'client' ? this.myCall : me.call) : me ? me.choice : null;
     this.el.answers.dataset.calling = calling ? '1' : '0';
-    this.el.answers.innerHTML = q.answers.map((ans, i) => {
+    const dark = !q.answers || e.dark;
+    this.el.answers.innerHTML = (q.answers || ['', '', '', '']).map((ans, i) => {
       let state = '';
-      if (OPEN.has(e.phase) && e.correct >= 0) state = i === e.correct ? 'right' : 'wrong';
+      if (OPEN.has(e.phase) && e.correct >= 0) state = i === e.correct || i === e.correct2 ? 'right' : 'wrong';
+      else if (i === e.blocked) state = 'wrong';
       else if (mine === i) state = 'mine';
       return `<button type="button" class="tr-ans" data-p="${i}" data-state="${state}" style="--pc:${PLATFORM_COLORS[i]}" ${live ? '' : 'disabled'}>
-        <span class="tr-letter">${PLATFORM_LETTERS[i]}</span><span class="tr-text">${esc(ans)}</span><span class="tr-crowd">${calling && mine === i ? 'YOUR CALL' : pinned && mine === i ? 'PINNED' : ''}</span>
+        <span class="tr-letter">${PLATFORM_LETTERS[i]}</span><span class="tr-text">${i === e.blocked && !OPEN.has(e.phase) ? 'CRUMBLED' : dark ? '?' : esc(ans)}</span><span class="tr-crowd">${calling && mine === i ? 'YOUR CALL' : pinned && mine === i ? 'PINNED' : ''}</span>
       </button>`;
     }).join('');
   }
@@ -299,6 +328,13 @@ export class RoyaleGame extends GameBase {
   // ---------- frame ----------
   frame(dt, reduce) {
     const e = this.engine;
+    // The lights come up in a blackout.
+    if (e.phase === R_PHASE.QUESTION && this.wasDark && !e.dark && e.question && e.question.answers) {
+      this.wasDark = false;
+      this.renderQuestion();
+      this.shell.audio.whoosh();
+      this.note('Lights up! Go!');
+    }
     if (e.phase === R_PHASE.QUESTION) {
       const frac = e.total ? e.t / e.total : 0;
       this.el.bar.style.transform = `scaleX(${Math.max(0, frac)})`;

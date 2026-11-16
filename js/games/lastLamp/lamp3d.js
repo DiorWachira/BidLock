@@ -272,7 +272,25 @@ export class LampStage {
     raft.visible = false;
     this.scene.add(raft);
     this.raft = raft;
-    this.props = { planks: null, tide: raft, lifeboat: boat, capstan: cap };
+    // The bell buoy: a striped float, a cage, and a lamp that flashes the pattern.
+    const buoy = new THREE.Group();
+    const stripes = canvasTexture(64, 64, (c, w) => { for (let i = 0; i < 4; i++) { c.fillStyle = i % 2 ? '#f3ead6' : '#b33a22'; c.fillRect(0, i * 16, w, 16); } });
+    add(buoy, new THREE.CylinderGeometry(0.75, 1.0, 1.4, 18), new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.6 }), 0, 0.3, 0);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU;
+      add(buoy, new THREE.CylinderGeometry(0.04, 0.04, 1.6, 6), this.ironMat, Math.cos(a) * 0.5, 1.8, Math.sin(a) * 0.5);
+    }
+    add(buoy, new THREE.ConeGeometry(0.7, 0.4, 14), this.ironMat, 0, 2.8, 0);
+    this.buoyLampMat = new THREE.MeshBasicMaterial({ color: 0x333333, toneMapped: false });
+    add(buoy, new THREE.SphereGeometry(0.32, 16, 12), this.buoyLampMat, 0, 2.1, 0);
+    this.buoyBulb = new THREE.PointLight(0xffffff, 0, 14, 1.5);
+    this.buoyBulb.position.y = 2.1;
+    buoy.add(this.buoyBulb);
+    buoy.position.set(0, CELLAR - 0.4, -4.6);
+    buoy.visible = false;
+    this.scene.add(buoy);
+    this.buoy = buoy;
+    this.props = { planks: null, tide: raft, lifeboat: boat, capstan: cap, buoy };
   }
 
   _stairs() {
@@ -366,7 +384,7 @@ export class LampStage {
     this.mode = 'room';
     this.hatchGoal = 0;
     this.flood.visible = false;
-    for (const prop of [this.raft, this.boat, this.capstan]) prop.visible = false;
+    for (const prop of [this.raft, this.boat, this.capstan, this.buoy]) prop.visible = false;
     for (const p of this.planks) p.g.visible = false;
     const n = Math.max(1, this.n);
     for (const id of ids) {
@@ -417,7 +435,7 @@ export class LampStage {
     this.pending = this.pending.filter((p) => p.keep);
     this.mode = 'cellar';
     this.miniKind = kind;
-    for (const prop of [this.raft, this.boat, this.capstan]) prop.visible = false;
+    for (const prop of [this.raft, this.boat, this.capstan, this.buoy]) prop.visible = false;
     for (const p of this.planks) { p.g.visible = false; p.drop = 0; p.dropping = false; p.g.position.y = CELLAR + 0.2; p.g.rotation.z = 0; }
     this.cellarWater = CELLAR - 0.6;
     const place = (id, x, z) => { const f = this.figures.get(id); if (f) { if (f.pos.y > CELLAR + 3 || f.hidden) { f.reset(); f.place(0, CELLAR, 4.5); } f.moveTo(x, z, CELLAR + 0.35); } };
@@ -429,8 +447,9 @@ export class LampStage {
         const f = this.figures.get(extra.saboteur);
         if (f) { if (f.pos.y > CELLAR + 3) { f.reset(); f.place(0, CELLAR, 4.5); } f.moveTo(0, 4.7, CELLAR + 0.35); }
       }
-    } else if (kind === 'tide') {
+    } else if (kind === 'tide' || kind === 'tally' || kind === 'manifest' || kind === 'buoy') {
       this.raft.visible = true;
+      this.buoy.visible = kind === 'buoy';
       crew.forEach((id, i) => place(id, (i - (crew.length - 1) / 2) * 1.2, -0.4));
     } else if (kind === 'lifeboat') {
       this.boat.visible = true;
@@ -483,6 +502,14 @@ export class LampStage {
 
   capstanSpin() { this.capSpin += 4; }
 
+  // The buoy's lamp: a colour while a signal shows, dark between them.
+  buoyLight(color) {
+    if (color == null) { this.buoyLampMat.color.set(0x333333); this.buoyBulb.intensity = 0; return; }
+    this.buoyLampMat.color.set(color);
+    this.buoyBulb.color.set(color);
+    this.buoyBulb.intensity = 40;
+  }
+
   _splash(f) {
     f.fall();
     this.spray.emit({ x: f.pos.x, y: CELLAR, z: f.pos.z, n: 60, speed: 3.5, up: 1.4, colors: [0x9fd4e8, 0xe8f6ff, 0x3f8090], life: 1.2, gravity: 9, drag: 0.6, radius: 0.6 });
@@ -502,7 +529,7 @@ export class LampStage {
     this.drop = [];
     this.mode = 'stairs';
     this.hatchGoal = 0;
-    for (const prop of [this.raft, this.boat, this.capstan]) prop.visible = false;
+    for (const prop of [this.raft, this.boat, this.capstan, this.buoy]) prop.visible = false;
     for (const p of this.planks) p.g.visible = false;
     this.flood.visible = true;
     this.stairLight.intensity = 45;

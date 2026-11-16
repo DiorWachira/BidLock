@@ -6,6 +6,11 @@
 import * as THREE from 'three';
 import { WIRE } from '../net/lobbyManager.js';
 import { gameById } from './games.js';
+import { QuizBank } from './quizBank.js';
+import { mulberry32 } from '../engine/auctionEngine.js';
+
+const SEEN_KEY = 'seenQuestions';
+const SEEN_CAP = 900; // remember this many recent questions per device
 
 const STEP = 1 / 60;
 export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -41,8 +46,28 @@ export class GameBase {
     this.seats = seats || [];
     if (role === 'client') return;
     this.colors = this.shell.colors(this.seats);
-    this.engine.startMatch({ seats: this.seats, seed, localId: 0 });
-    if (!this.shell.debug.triviaLocal) this.engine.quiz.load().catch(() => 0);
+    // Questions this device has asked recently are kept back until the rest run out.
+    const store = this.shell.store;
+    const seen = store ? store.get(SEEN_KEY, []) : [];
+    this.quiz = new QuizBank(mulberry32((seed ^ 0x5bd1e995) >>> 0), { seen: Array.isArray(seen) ? seen : [] });
+    this.engine.startMatch({ seats: this.seats, seed, localId: 0, quiz: this.quiz });
+    if (!this.shell.debug.triviaLocal) {
+      this.quiz.load({
+        token: store ? store.get('otdbToken', null) : null,
+        onToken: (t) => { if (store) store.set('otdbToken', t); },
+      }).catch(() => 0);
+    }
+  }
+
+  // Remember what was asked, so the next match starts somewhere new.
+  saveSeen() {
+    if (!this.quiz || this.seenSaved || !this.shell.store) return;
+    this.seenSaved = true;
+    const used = this.quiz.usedIds;
+    if (!used.length) return;
+    const prev = this.shell.store.get(SEEN_KEY, []);
+    const keep = (Array.isArray(prev) ? prev : []).filter((id) => !used.includes(id));
+    this.shell.store.set(SEEN_KEY, [...keep, ...used].slice(-SEEN_CAP));
   }
 
   get me() { return this.engine.players[this.engine.localId] || null; }
@@ -56,6 +81,7 @@ export class GameBase {
 
   // ---------- time ----------
   advance(dt) {
+    if (this.isOver()) this.saveSeen();
     if (this.stopped || this.isOver()) return;
     const e = this.engine;
     if (this.role === 'client') {
@@ -159,6 +185,7 @@ export class GameBase {
   }
 
   stop() {
+    this.saveSeen();
     this.stopped = true;
     if (this.ro) this.ro.disconnect();
     if (this.stage && this.stage.dispose) this.stage.dispose();

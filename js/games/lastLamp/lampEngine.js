@@ -17,8 +17,20 @@ export const L_PHASE = Object.freeze({
   FINALE_INTRO: 'FINALE_INTRO', SPRINT: 'SPRINT', SPRINT_RESULT: 'SPRINT_RESULT', WINNER: 'WINNER',
 });
 
+// Round events: from question 2, about every other question changes one rule.
+export const EVENTS = Object.freeze({
+  calm: { name: 'Calm Water', line: 'The sea settles. Answer right and a lost flame is relit.' },
+  lightning: { name: 'Lightning', line: 'The storm is overhead. The slowest right answer goes down the hatch too.' },
+  fog: { name: 'Fog', line: 'Fog on the glass: the answers only show once it clears.' },
+  undertow: { name: 'Undertow', line: 'The current is strong: this time a lost game costs two flames.' },
+  beacon: { name: 'Beacon', line: 'The beam sweeps the room: right answers this time are worth a step on the stairs later.' },
+});
+
 export const L_RULES = Object.freeze({
   maxKeepers: 8,
+  eventFrom: 2,
+  eventChance: 0.5,
+  fogTime: 6, // seconds before the answers show in fog
   flames: 3,
   introTime: 5,
   questionTime: 15,
@@ -106,7 +118,7 @@ export class LampEngine {
     this.localId = localId;
     this.players = list.map((s, id) => ({
       id, name: s.name, isHuman: s.kind !== 'ai', bot: s.kind === 'ai' ? (s.bot || s.name) : null,
-      flames: this.R.flames, ghost: false, away: false, answer: null, wraithRight: 0, step: 0, marks: [null, null, null],
+      flames: this.R.flames, ghost: false, away: false, answer: null, answerAt: 0, wraithRight: 0, beacon: 0, step: 0, marks: [null, null, null],
     }));
     this.round = 0;
     this.clock = 0;
@@ -120,6 +132,8 @@ export class LampEngine {
     this.ranking = [];
     this.reveal = null;
     this.plans = [];
+    this.event = null;
+    this.lastEvent = null;
     this._phase(L_PHASE.INTRO, this.R.introTime);
     this.emit('matchStart', { count: this.players.length });
   }
@@ -134,6 +148,7 @@ export class LampEngine {
   get keepers() { return this.players.filter((p) => !p.ghost); }
   get wraiths() { return this.players.filter((p) => p.ghost); }
   get elapsed() { return this.total - this.t; }
+  get foggy() { return this.phase === L_PHASE.QUESTION && this.event === 'fog' && this.elapsed < this.R.fogTime; }
 
   // The minigame as the screen should see it, on the host and on a mirror alike.
   miniView() {
@@ -174,6 +189,7 @@ export class LampEngine {
     if (!Number.isInteger(index) || index < 0 || index >= this.question.answers.length) return false;
     const first = p.answer == null;
     p.answer = index;
+    p.answerAt = this.elapsed;
     if (first) this.emit('answered', { id });
     const waiting = this.players.filter((x) => !x.away && x.answer == null);
     if (!waiting.length) this.t = Math.min(this.t, 1.2);
@@ -228,20 +244,32 @@ export class LampEngine {
 
   _ask() {
     this.round++;
-    const q = this.quiz.next();
-    this.question = { text: q.text, answers: q.answers, topic: q.topic };
+    // Easy first, harder as the night goes on.
+    const difficulty = this.round <= 2 ? 1 : this.round <= 4 ? 2 : 3;
+    const q = this.quiz.next({ difficulty });
+    this.question = { text: q.text, answers: q.answers, topic: q.topic, style: q.style || 'mc', difficulty: q.difficulty };
     this.correct = q.correct;
     this.reveal = null;
     this.miniLast = null;
-    for (const p of this.players) p.answer = null;
+    this.event = this._rollEvent();
+    for (const p of this.players) { p.answer = null; p.answerAt = 0; }
     this._phase(L_PHASE.QUESTION, this.R.questionTime);
+    const after = this.event === 'fog' ? this.R.fogTime : 0;
     for (const p of this.players) {
       if (p.isHuman) continue;
       const prof = botProfile(p.bot);
       const pick = botAnswer(prof, this.correct, q.answers.length, this.rng);
-      this._plan(1.5 + prof.pace * 8 + this.rng() * 2, () => this.answerFor(p.id, pick));
+      this._plan(after + 1.5 + prof.pace * (8 - after * 0.6) + this.rng() * 2, () => this.answerFor(p.id, pick));
     }
-    this.emit('question', { n: this.round });
+    this.emit('question', { n: this.round, event: this.event });
+  }
+
+  _rollEvent() {
+    if (this.round < this.R.eventFrom || this.rng() >= this.R.eventChance) { this.lastEvent = null; return null; }
+    const pool = Object.keys(EVENTS).filter((k) => k !== this.lastEvent);
+    const pick = pool[Math.floor(this.rng() * pool.length)];
+    this.lastEvent = pick;
+    return pick;
   }
 
   _reveal() {
@@ -253,10 +281,25 @@ export class LampEngine {
       const right = p.answer === this.correct;
       if (p.ghost) { if (right) p.wraithRight++; continue; }
       (right ? safe : down).push(p.id);
+      if (right && this.event === 'beacon') p.beacon++;
     }
-    this.reveal = { correct: this.correct, safe, down, picks };
+    // Event outcomes.
+    const relit = [];
+    let struck = null;
+    if (this.event === 'calm') {
+      for (const id of safe) {
+        const p = this.players[id];
+        if (p.flames < this.R.flames) { p.flames++; relit.push(id); }
+      }
+    }
+    if (this.event === 'lightning' && safe.length >= 2) {
+      struck = safe.slice().sort((a, b) => this.players[b].answerAt - this.players[a].answerAt || a - b)[0];
+      safe.splice(safe.indexOf(struck), 1);
+      down.push(struck);
+    }
+    this.reveal = { correct: this.correct, safe, down, picks, relit, struck };
     this._phase(L_PHASE.REVEAL, this.R.revealTime);
-    this.emit('reveal', { correct: this.correct, answer: this.question.answers[this.correct], safe, down });
+    this.emit('reveal', { correct: this.correct, answer: this.question.answers[this.correct], safe, down, relit, struck, event: this.event });
   }
 
   _afterReveal() {
@@ -287,7 +330,7 @@ export class LampEngine {
     const losers = mini.losers.filter((id) => !this.players[id].ghost);
     // The lamp cannot go fully dark: if this would leave no keeper lit, the ones about
     // to be snuffed hold on with a single flame.
-    const cost = this.round >= this.R.highTideRound ? 2 : 1;
+    const cost = this.round >= this.R.highTideRound || this.event === 'undertow' ? 2 : 1;
     const wouldDie = losers.filter((id) => this.players[id].flames <= cost);
     const lit = this.keepers.length;
     const mercy = wouldDie.length > 0 && lit - wouldDie.length <= 0;
@@ -322,6 +365,8 @@ export class LampEngine {
     for (const p of this.players) {
       // Wraiths who kept answering right have been haunting the stairs: a step for every two.
       p.step = p.ghost ? this.R.wraithStart + Math.min(this.R.maxHaunt, Math.floor(p.wraithRight / 2)) : this.R.keeperStart + (p.flames - 1);
+      // Beacon rounds answered right: a step each, for keepers and wraiths alike.
+      p.step = Math.min(this.R.stairs - 1, p.step + p.beacon);
       p.marks = [null, null, null];
     }
     this.finale = { sprint: 0, water: this.R.waterStart, statements: null, truths: null, last: null };
@@ -334,7 +379,8 @@ export class LampEngine {
   _sprint() {
     const f = this.finale;
     f.sprint++;
-    const trio = this.quiz.trio();
+    // The climb gets harder the higher it goes.
+    const trio = this.quiz.trio(f.sprint <= 1 ? 1 : f.sprint <= 3 ? 2 : 3);
     f.statements = trio.map((s) => ({ q: s.q, a: s.a, topic: s.topic }));
     f.truths = trio.map((s) => s.truth);
     f.last = null;
@@ -439,14 +485,14 @@ export class LampEngine {
     const f = this.finale;
     return {
       o: this.options, ph: this.phase, t: this.t, tt: this.total, r: this.round,
-      q: this.question, c: shown ? this.correct : -1, rv: this.reveal ? { ...this.reveal, picks: this.reveal.picks } : null,
+      q: this.question && this.foggy ? { ...this.question, answers: null } : this.question, c: shown ? this.correct : -1, ev: this.event, rv: this.reveal ? { ...this.reveal, picks: this.reveal.picks } : null,
       mv: this.mini ? this.mini.view() : null, ml: this.miniLast, pm: this.pendingMini || null,
       f: f ? { sprint: f.sprint, water: f.water, statements: f.statements, truths: this.phase === L_PHASE.SPRINT ? null : f.truths, last: f.last } : null,
       w: this.winner, rank: this.ranking,
       pl: this.players.map((p) => ({
         id: p.id, n: p.name, h: p.isHuman ? 1 : 0, b: p.bot, fl: p.flames, g: p.ghost ? 1 : 0, aw: p.away ? 1 : 0,
         an: this.phase === L_PHASE.QUESTION ? (p.answer == null ? null : -2) : p.answer, // -2: answered, not saying what
-        wr: p.wraithRight, st: p.step, mk: p.marks.filter((m) => m != null).length,
+        wr: p.wraithRight, bc: p.beacon, st: p.step, mk: p.marks.filter((m) => m != null).length,
       })),
     };
   }
@@ -462,6 +508,7 @@ export class LampEngine {
     this.round = s.r;
     this.question = s.q;
     this.correct = s.c;
+    this.event = s.ev || null;
     this.reveal = s.rv;
     this.mini = null;
     this.miniData = s.mv;
@@ -472,7 +519,7 @@ export class LampEngine {
     this.ranking = s.rank;
     this.players = s.pl.map((p) => ({
       id: p.id, name: p.n, isHuman: !!p.h, bot: p.b, flames: p.fl, ghost: !!p.g, away: !!p.aw,
-      answer: p.an, wraithRight: p.wr, step: p.st, marks: [null, null, null], markCount: p.mk,
+      answer: p.an, wraithRight: p.wr, beacon: p.bc || 0, step: p.st, marks: [null, null, null], markCount: p.mk,
     }));
   }
 }

@@ -193,6 +193,16 @@ try {
     } else if (kind === 'lifeboat') {
       await p.locator('#ll-panel [data-act="boat"][data-v="share"]').click();
       ok('the lifeboat takes a choice', (await p.evaluate(() => window.__bidlock.arcade.engine.miniView().chosen.includes(0))));
+    } else if (kind === 'tally') {
+      await p.locator('#ll-panel .ll-tally .ans').first().click();
+      ok('the tally takes a guess', (await p.evaluate(() => window.__bidlock.arcade.engine.miniView().chosen.includes(0))));
+    } else if (kind === 'buoy') {
+      await p.waitForSelector('#ll-panel .ll-signpad .ans', { timeout: 20000 });
+      await p.locator('#ll-panel .ll-signpad .ans').first().click();
+      ok('the buoy takes a signal', (await p.evaluate(() => { const v = window.__bidlock.arcade.engine.miniView(); return v.progress[0] === 1 || v.failed[0]; })));
+    } else if (kind === 'manifest') {
+      await p.locator('#ll-panel .ll-answers .ans').first().click();
+      ok('the manifest takes an answer', (await p.evaluate(() => window.__bidlock.arcade.engine.miniView().answered.includes(0))));
     } else {
       ok('the capstan game is up', (await p.locator('#ll-panel .ll-order li').count()) >= 1);
     }
@@ -283,6 +293,71 @@ try {
     ok('if the host leaves, the guest is told', (await guest.locator('#lost-h').textContent()) === 'SIGNAL LOST' && !(await guest.evaluate(() => window.__bidlock.arcade)));
     ok('no console errors in the room (host)', hostErrors.length === 0, hostErrors.join(' | '));
     ok('no console errors in the room (guest)', guestErrors.length === 0, guestErrors.join(' | '));
+    await ctx.close();
+  }
+
+  // ---------- 4b. Every new situation, forced, played and photographed
+  {
+    const ctx = await context(browser);
+    const { page: p, errors } = await page(ctx, `${Q}&seed=12`);
+    await p.locator('.channel[data-game="royale"]').click();
+    await p.locator('#btn-start').click();
+    await waitPhase(p, 'QUESTION');
+    // Blackout: the answers are question marks until the last seconds.
+    await p.evaluate(() => { const e = window.__bidlock.arcade.engine; e.twist = 'blackout'; e.t = e.total; window.__bidlock.arcade.wasDark = true; window.__bidlock.arcade.renderQuestion(); });
+    ok('blackout: the answers are dark', (await p.locator('.tr-ans .tr-text').allTextContents()).every((t) => t === '?'));
+    await p.waitForTimeout(600);
+    await shot(p, 'royale-blackout');
+    await p.evaluate(() => { const e = window.__bidlock.arcade.engine; e.t = 4.5; });
+    await p.waitForFunction(() => [...document.querySelectorAll('.tr-ans .tr-text')].every((x) => x.textContent !== '?'), null, { timeout: 5000 });
+    ok('blackout: the lights come up', true);
+    // Shuffle: the answers jump platform halfway.
+    await runUntil(p, "e.phase === 'QUESTION' && e.round >= 2");
+    const before = await p.locator('.tr-ans .tr-text').allTextContents();
+    await p.evaluate(() => { const e = window.__bidlock.arcade.engine; e.twist = 'shuffle'; e.twistDone = false; e.t = e.total / 2 - 0.1; });
+    await p.waitForFunction(() => window.__bidlock.arcade.engine.twistDone, null, { timeout: 5000 });
+    await p.waitForTimeout(300);
+    const after = await p.locator('.tr-ans .tr-text').allTextContents();
+    ok('shuffle: every answer moved platform', after.every((t, i) => t !== before[i]) && [...after].sort().join() === [...before].sort().join(), JSON.stringify([before, after]));
+    // Crumble: a wrong platform goes early.
+    await runUntil(p, "e.phase === 'QUESTION' && e.round >= 3");
+    await p.evaluate(() => { const e = window.__bidlock.arcade.engine; e.twist = 'crumble'; e.twistDone = false; e.t = e.total / 2 - 0.1; });
+    await p.waitForFunction(() => window.__bidlock.arcade.engine.blocked >= 0, null, { timeout: 5000 });
+    await p.waitForTimeout(900);
+    ok('crumble: the platform is shown as closed', (await p.locator('.tr-ans .tr-text', { hasText: 'CRUMBLED' }).count()) === 1);
+    await shot(p, 'royale-crumble');
+    await p.evaluate(() => window.__bidlock.arcade.shell.exit());
+    await p.waitForFunction(() => window.__bidlock.screen === 'title' && !window.__bidlock.arcade);
+
+    await p.locator('.channel[data-game="lamp"]').click();
+    await p.locator('#btn-start').click();
+    await waitPhase(p, 'QUESTION');
+    // Fog on question 1 (forced), then each new survival game in turn.
+    await p.evaluate(() => { const g = window.__bidlock.arcade; const e = g.engine; e.event = 'fog'; e.t = e.total; g.wasFoggy = true; g.el.event.hidden = false; g.el.event.textContent = 'FOG'; g.renderPanel(); });
+    ok('fog: the answers are hidden', (await p.locator('#ll-panel .ans[disabled]').count()) === 4);
+    await p.waitForTimeout(400);
+    await shot(p, 'lamp-fog');
+    for (const kind of ['tally', 'buoy', 'manifest']) {
+      await runUntil(p, "e.phase === 'QUESTION'");
+      await p.evaluate(() => { const e = window.__bidlock.arcade.engine; e.event = null; e.answerFor(0, (e.correct + 1) % 4); });
+      await runUntil(p, "e.phase === 'DESCENT' || e.phase === 'WINNER' || e.phase === 'FINALE_INTRO'");
+      if ((await gphase(p)) !== 'DESCENT') break;
+      await p.evaluate((k) => { window.__bidlock.arcade.engine.pendingMini = k; }, kind);
+      await runUntil(p, "e.phase === 'MINI'");
+      await p.waitForTimeout(kind === 'buoy' ? 1400 : 900);
+      ok(`${kind}: the survival game is up`, (await p.evaluate(() => window.__bidlock.arcade.engine.miniView().kind)) === kind);
+      await shot(p, `lamp-${kind}`);
+      if (kind === 'tally') { await p.locator('#ll-panel .ll-tally .ans').nth(1).click(); ok('tally: a guess is taken', await p.evaluate(() => window.__bidlock.arcade.engine.miniView().chosen.includes(0))); }
+      if (kind === 'buoy') {
+        await p.waitForSelector('#ll-panel .ll-signpad .ans', { timeout: 20000 });
+        const seq = await p.evaluate(() => window.__bidlock.arcade.engine.mini.seq);
+        for (const k of seq) await p.locator(`#ll-panel .ll-signpad .ans[data-i="${k}"]`).click();
+        ok('buoy: signalling the pattern back gets you out', (await p.evaluate(() => { const v = window.__bidlock.arcade.engine.miniView(); return v.progress[0] === v.length && !v.failed[0]; })));
+      }
+      if (kind === 'manifest') { const c = await p.evaluate(() => window.__bidlock.arcade.engine.mini.qs[0].correct); await p.locator(`#ll-panel .ll-answers .ans[data-i="${c}"]`).click(); ok('manifest: an answer is taken', await p.evaluate(() => window.__bidlock.arcade.engine.miniView().answered.includes(0))); }
+      await runUntil(p, "e.phase === 'MINI_RESULT'");
+    }
+    ok('no console errors in the forced situations', errors.length === 0, errors.join(' | '));
     await ctx.close();
   }
 
