@@ -229,8 +229,9 @@ export class RoyaleStage {
     this.timeBar.position.set(0, -2.98, 0.17);
     g.add(this.timeBar);
     for (const x of [-4.6, 4.6]) add(g, new THREE.CylinderGeometry(0.05, 0.05, 6, 6), this.steel, x, 5.8, 0);
-    g.position.set(0, 8.4, -10.5);
-    g.rotation.x = 0.2;
+    g.position.set(0, 5.2, -12.6);
+    g.rotation.x = -0.36;
+    g.scale.setScalar(0.92);
     this.scene.add(g);
     this.drawBoard({ title: 'TRAPDOOR ROYALE', text: 'Find your feet. The first question is coming.', answers: null });
   }
@@ -340,7 +341,7 @@ export class RoyaleStage {
       const h = this._home(i++);
       f.moveTo(h.x, h.z, 0);
     }
-    this._cam(0, 15, 15.8, 0, 0, 1.4);
+    this._cam(0, 14, 18, 0, 1.8, -1.6);
   }
 
   moveFigure(id, platform) {
@@ -504,14 +505,15 @@ export class RoyaleStage {
     const sh = reduce ? 0 : this.shake;
     const drift = reduce ? 0 : Math.sin(t * 0.25) * 0.5;
     const orbit = this.championId != null && !reduce ? t * 0.25 : 0;
-    const px = this.camPos.x * fit + drift;
+    const side = this.camera.aspect > 1.45 && this.championId == null ? 3.2 : 0;
+    const px = this.camPos.x * fit + drift + side;
     const pz = this.camPos.z * fit;
     this.camera.position.set(
       px * Math.cos(orbit) + pz * Math.sin(orbit) + (Math.random() - 0.5) * sh,
       this.camPos.y * (0.75 + fit * 0.25) + (Math.random() - 0.5) * sh,
       pz * Math.cos(orbit) - px * Math.sin(orbit) + (Math.random() - 0.5) * sh,
     );
-    this.camera.lookAt(this.camLook);
+    this.camera.lookAt(this.camLook.x + side, this.camLook.y, this.camLook.z);
   }
 
   render() { this.renderer.render(this.scene, this.camera); }

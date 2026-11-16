@@ -153,8 +153,8 @@ export class Figure {
       this.lantern = lantern;
     }
 
-    this.plate = nameplate(local ? `${name} (you)` : name, color);
-    this.plate.position.y = 1.86;
+    this.plate = nameplate(local && String(name).toUpperCase() !== 'YOU' ? `${name} (you)` : name, color);
+    this.plate.position.y = 1.86 + (id % 2) * 0.36;
     this.group.add(this.plate);
   }
 

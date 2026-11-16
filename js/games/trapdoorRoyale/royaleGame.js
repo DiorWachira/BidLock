@@ -2,6 +2,9 @@
 // controls, and the results. Rules live in royaleEngine.js; the arena in royale3d.js.
 
 import { RoyaleEngine, R_PHASE, R_RULES, PLATFORM_LETTERS } from './royaleEngine.js';
+
+// The right answer is only shown once the floor has dropped.
+const OPEN = new Set([R_PHASE.DROP, R_PHASE.RECAP, R_PHASE.CHAMPION]);
 import { RoyaleStage, PLATFORM_COLORS } from './royale3d.js';
 import { GameBase, esc } from '../../arcade/gameBase.js';
 
@@ -190,7 +193,7 @@ export class RoyaleGame extends GameBase {
     if (!q) { this.el.answers.innerHTML = ''; return; }
     this.el.topic.textContent = `${q.topic.toUpperCase()} · ${MODE_LABEL[e.mode]}`;
     this.el.text.textContent = q.text;
-    if (this.stage) this.stage.drawBoard({ title: `Question ${e.round} · ${MODE_LABEL[e.mode]}`, text: q.text, answers: q.answers, correct: e.correct });
+    if (this.stage) this.stage.drawBoard({ title: `Question ${e.round} · ${MODE_LABEL[e.mode]}`, text: q.text, answers: q.answers, correct: OPEN.has(e.phase) ? e.correct : -1 });
     this.renderAnswers();
   }
 
@@ -204,7 +207,7 @@ export class RoyaleGame extends GameBase {
     const live = e.phase === R_PHASE.QUESTION && me && me.alive;
     this.el.answers.innerHTML = q.answers.map((ans, i) => {
       let state = '';
-      if (e.correct >= 0) state = i === e.correct ? 'right' : 'wrong';
+      if (OPEN.has(e.phase) && e.correct >= 0) state = i === e.correct ? 'right' : 'wrong';
       else if (me && me.choice === i) state = 'mine';
       return `<button type="button" class="tr-ans" data-p="${i}" data-state="${state}" style="--pc:${PLATFORM_COLORS[i]}" ${live ? '' : 'disabled'}>
         <span class="tr-letter">${PLATFORM_LETTERS[i]}</span><span class="tr-text">${esc(ans)}</span><span class="tr-crowd" aria-label="${crowd[i]} on this platform">${crowd[i] ? '●'.repeat(Math.min(crowd[i], 12)) : ''}</span>
@@ -235,7 +238,7 @@ export class RoyaleGame extends GameBase {
     const me = e.me;
     const rows = e.ranking.map((id) => {
       const p = e.players[id];
-      return { name: id === e.localId ? `${p.name} (you)` : p.name, color: this.colors[id], me: id === e.localId, note: p.alive ? 'CHAMPION' : `dropped on question ${p.outRound}` };
+      return { name: this.rowName(p), color: this.colors[id], me: id === e.localId, note: p.alive ? 'CHAMPION' : `dropped on question ${p.outRound}` };
     });
     const place = e.ranking.indexOf(e.localId) + 1;
     this.showCard(this.resultsHtml({

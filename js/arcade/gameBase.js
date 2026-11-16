@@ -119,6 +119,12 @@ export class GameBase {
     return renderer;
   }
 
+  // A results row name: "PIXEL", or "SAM (you)", never "YOU (you)".
+  rowName(p) {
+    if (p.id !== this.engine.localId) return p.name;
+    return String(p.name).toUpperCase() === 'YOU' ? 'YOU' : `${p.name} (you)`;
+  }
+
   // ---------- the results card ----------
   resultsHtml({ title, sub, rows }) {
     const client = this.role === 'client';

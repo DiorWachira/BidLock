@@ -1007,3 +1007,13 @@ body[data-screen="arcade"] #stage { display: none; }
   .ll-pump { grid-template-columns: 70px minmax(0, 1fr) 34px; }
   .ag-toast { top: 76px; font-size: 13px; }
 }
+
+@media (min-width: 981px) {
+  /* Trapdoor Royale: the question sits in a column on the right, clear of the arena. */
+  .ag[data-game="royale"] .ag-q { left: auto; right: 14px; top: 58px; bottom: auto; transform: none; width: min(360px, 32%); max-height: calc(100% - 140px); }
+  .ag[data-game="royale"] .tr-answers { grid-template-columns: 1fr; }
+  .ag[data-game="royale"] .ag-keys { top: auto; bottom: 14px; right: 14px; }
+  .ag[data-game="royale"] .ag-left { margin-left: 0; }
+  .ag[data-game="royale"] .ag-top { right: auto; }
+  .ag[data-game="royale"] .ag-toast { left: 34%; }
+}

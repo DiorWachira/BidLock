@@ -291,7 +291,7 @@ function showHero(catIndex) {
 }
 
 function heroAttract(dt) {
-  if (screen !== 'title' || isPaused() || (lobbyView && lobbyView.isOpen)) return;
+  if (screen !== 'title' || isPaused() || (lobbyView && lobbyView.isOpen) || settings.game !== 'bidlock') return;
   hero.auto += dt;
   if (hero.auto < 4.6 || seconds - hero.touched < 9) return;
   hero.auto = 0;
@@ -580,6 +580,7 @@ function selectGame(id) {
   how.innerHTML = g.id === 'bidlock' ? '' : g.how.map((h) => `<li>${esc(h)}</li>`).join('');
   $('#title-slug').textContent = `CH 20 · ${g.slot} · ${g.kind.toUpperCase()} · ${g.people.toUpperCase()}`;
   if (logo) logo.set(g.marquee);
+  if (g.id === 'bidlock') { if (screen === 'title') showHero(hero.cat); } else { S.clearLot(); S.setPrice(0); S.setSign('LIVE'); }
   document.title = g.id === 'bidlock' ? `BidLock — The $${settings.budget} Draft` : `${g.name} — BidLock Arcade`;
 }
 
@@ -601,6 +602,7 @@ function toTitle() {
   setCam('title');
   hero.touched = -99;
   showHero(hero.cat);
+  selectGame(settings.game);
 }
 
 // Solo: back to the title. Host: the room stays open and everyone returns to the lobby.

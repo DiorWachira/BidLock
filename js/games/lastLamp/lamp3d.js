@@ -13,7 +13,7 @@ const R_TOWER = 9;
 const CELLAR = -12;
 const STEP_H = 0.95;
 const STEP_R = 6.6;
-const STEP_A = 0.5;
+const STEP_A = 0.27;
 
 function stoneTexture() {
   return canvasTexture(512, 512, (c, w) => {
@@ -91,12 +91,20 @@ export class LampStage {
     this.bolt = new THREE.DirectionalLight(0xcfe4ff, 0);
     this.bolt.position.set(-6, 10, -8);
     this.scene.add(this.bolt);
+    // Follows the climbers up the stairs in the finale.
+    this.stairLight = new THREE.PointLight(0xffd59a, 0, 16, 1.3);
+    this.scene.add(this.stairLight);
     this.lampLight = new THREE.PointLight(0xfff0c0, 0, 30, 1.4);
     this.lampLight.position.set(0, 12.4, 0);
     this.scene.add(this.lampLight);
-    this.cellarLight = new THREE.PointLight(0x4fb0c0, 22, 18, 1.6);
-    this.cellarLight.position.set(0, CELLAR + 4, 2);
+    this.cellarLight = new THREE.PointLight(0x6fc4d4, 70, 22, 1.4);
+    this.cellarLight.position.set(0, CELLAR + 4.5, 3);
     this.scene.add(this.cellarLight);
+    // A lantern hung over the Undertow, so the survival games are lit.
+    this.cellarLamp = new THREE.SpotLight(0xffc070, 260, 26, 0.75, 0.6, 1.2);
+    this.cellarLamp.position.set(0, CELLAR + 8, 2);
+    this.cellarLamp.target.position.set(0, CELLAR, -1.2);
+    this.scene.add(this.cellarLamp, this.cellarLamp.target);
   }
 
   _tower() {
@@ -151,7 +159,7 @@ export class LampStage {
     const hole = new THREE.Path();
     hole.moveTo(-1.3, 3.2); hole.lineTo(1.3, 3.2); hole.lineTo(1.3, 5.8); hole.lineTo(-1.3, 5.8); hole.closePath();
     shape.holes.push(hole);
-    const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85 }));
+    const floor = new THREE.Mesh(new THREE.ShapeGeometry(shape, 48), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85, side: THREE.DoubleSide }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     // ShapeGeometry is in the XY plane; turning it flat puts shape-y on world -z, so flip.
@@ -175,10 +183,6 @@ export class LampStage {
     }
     this.hatchOpen = 0;
     this.hatchGoal = 0;
-    // A shaft down to the cellar.
-    const shaft = new THREE.Mesh(new THREE.BoxGeometry(2.6, 12, 2.6), new THREE.MeshStandardMaterial({ color: 0x0b0c0d, side: THREE.BackSide, roughness: 1 }));
-    shaft.position.set(0, -6, 4.5);
-    this.scene.add(shaft);
 
     // The hearth: a ring of stones, a brazier, and a fire made of flickering cones.
     add(this.scene, new THREE.CylinderGeometry(1.2, 1.35, 0.35, 20), new THREE.MeshStandardMaterial({ color: 0x3a3632, roughness: 0.95 }), 0, 0.17, 0);
@@ -292,14 +296,16 @@ export class LampStage {
     this.flood = new THREE.Mesh(new THREE.CircleGeometry(R_TOWER - 0.05, 40), this.floodMat);
     this.flood.rotation.x = -Math.PI / 2;
     this.flood.position.y = -3;
+    this.waterLevel = -3;
     this.flood.visible = false;
     this.scene.add(this.flood);
   }
 
-  _stepAngle(k) { return Math.PI * 1.1 - k * STEP_A; }
+  // The stairs climb round the back half of the tower, left to right, facing the camera.
+  _stepAngle(k) { return Math.PI + 0.25 + k * STEP_A; }
   stepPos(k, lane = 0) {
-    const a = this._stepAngle(k) + lane * 0.13;
-    const r = STEP_R - 0.3 + (lane % 2) * 0.5;
+    const a = this._stepAngle(k) + ((lane % 3) - 1) * 0.05;
+    const r = STEP_R - 0.5 + (lane % 3) * 0.4;
     return { x: Math.cos(a) * r, y: k * STEP_H, z: Math.sin(a) * r };
   }
 
@@ -335,6 +341,10 @@ export class LampStage {
 
   // Everyone back by the fire.
   toRoom(ids, instant = false) {
+    const cut = this.mode !== 'room';
+    this.stairLight.intensity = 0;
+    this.pending = [];
+    this.drop = [];
     this.mode = 'room';
     this.hatchGoal = 0;
     this.flood.visible = false;
@@ -350,7 +360,7 @@ export class LampStage {
       f.face(Math.atan2(-pos.x, -pos.z - 0.6));
       f.setTilt(0);
     }
-    this._goCam([0, 6.4, 11.2], [0, 1.1, -0.2]);
+    this._goCam([0, 6.4, 11.2], [0, 1.1, -0.2], cut || instant);
   }
 
   question() { for (const f of this.figures.values()) f.setTilt(Math.sin(f.id * 2.1) * 0.22); }
@@ -370,6 +380,7 @@ export class LampStage {
     this.hatchGoal = 1;
     this.shake = 0.25;
     this._goCam([0, 5.5, 9.5], [0, 0, 4.5]);
+    this.drop = [];
     crew.forEach((id, i) => this._after(0.7 + i * 0.18, () => {
       const f = this.figures.get(id);
       if (!f) return;
@@ -379,13 +390,13 @@ export class LampStage {
       f.state = 'idle';
       f.vy = 0;
       this.drop.push({ f, x: (i - (crew.length - 1) / 2) * 0.7 });
-    }));
-    this.drop = [];
+    }, true));
     this.miniKind = kind;
   }
 
   // Set up the cellar for one game and gather the crew.
   startMini(kind, crew, extra = {}) {
+    this.pending = this.pending.filter((p) => p.keep);
     this.mode = 'cellar';
     this.miniKind = kind;
     for (const prop of [this.raft, this.boat, this.capstan]) prop.visible = false;
@@ -412,7 +423,7 @@ export class LampStage {
       crew.forEach((id, i) => { const a = (i / n) * TAU + 0.4; place(id, Math.cos(a) * 2.1, -1.2 + Math.sin(a) * 2.1); });
       this.sockets.forEach((s) => { s.material.emissiveIntensity = 0; });
     }
-    this._goCam([0, CELLAR + 6.2, 8.4], [0, CELLAR + 0.4, -0.8]);
+    this._goCam([0, CELLAR + 6.2, 8.4], [0, CELLAR + 0.4, -0.8], true);
   }
 
   // Minigame moments.
@@ -469,11 +480,14 @@ export class LampStage {
 
   // ---------- the climb ----------
   finale(players) {
+    this.pending = [];
+    this.drop = [];
     this.mode = 'stairs';
     this.hatchGoal = 0;
     for (const prop of [this.raft, this.boat, this.capstan]) prop.visible = false;
     for (const p of this.planks) p.g.visible = false;
     this.flood.visible = true;
+    this.stairLight.intensity = 45;
     this.lensMat.emissiveIntensity = 0.05;
     this.lampLight.intensity = 0;
     players.forEach((p, i) => {
@@ -484,7 +498,16 @@ export class LampStage {
       f.place(pos.x, pos.y, pos.z);
       f.setGhost(p.ghost);
     });
-    this._goCam([2, 7.5, 12.5], [-1, 4.5, 0]);
+    this._climbCam(players, true);
+  }
+
+  _climbCam(players, cut = false) {
+    const lead = Math.max(...players.filter((p) => !p.ghost).map((p) => p.step), 0);
+    const sp = this.stepPos(Math.min(10, lead + 1));
+    // Stay inside the tower, a little below the leaders, looking up the stairs.
+    // Climbers sit in the upper half of the frame, above the question panel.
+    this._goCam([sp.x * 0.3, Math.max(2.2, sp.y + 0.5), 6.6], [sp.x * 0.8, sp.y - 1.8, -4], cut);
+    this.stairGoal = { x: sp.x * 0.7, y: sp.y + 2.2, z: sp.z * 0.7 };
   }
 
   climb(players, water) {
@@ -497,8 +520,7 @@ export class LampStage {
       f.setGhost(p.ghost);
     });
     this.waterLevel = water;
-    const top = Math.max(...players.map((p) => p.step));
-    this._goCam([2, 6 + top * 0.55, 12.5], [-1, 2.5 + top * STEP_H * 0.75, 0]);
+    this._climbCam(players);
   }
 
   lightLamp(id) {
@@ -506,14 +528,18 @@ export class LampStage {
     this.lampLight.intensity = 90;
     const f = this.figures.get(id);
     if (f) { const pos = { x: 1.6, y: this.lampRoomY + 1.35, z: 1.6 }; f.reset(); f.moveTo(pos.x, pos.z, pos.y); f.cheer(40); }
-    this._goCam([0, this.lampRoomY + 4.5, 9], [0, this.lampRoomY + 2, 0]);
+    this._goCam([0, this.lampRoomY + 3.2, 8.5], [0, this.lampRoomY + 2.1, 0]);
     this.celebrate = 9;
   }
 
   thunder() { this.flash = 1; }
 
-  _goCam(pos, look) { this.camGoal.pos.set(...pos); this.camGoal.look.set(...look); }
-  _after(s, fn) { this.pending.push({ at: this.t + s, fn }); }
+  _goCam(pos, look, cut = false) {
+    this.camGoal.pos.set(...pos);
+    this.camGoal.look.set(...look);
+    if (cut) { this.camPos.copy(this.camGoal.pos); this.camLook.copy(this.camGoal.look); }
+  }
+  _after(s, fn, keep = false) { this.pending.push({ at: this.t + s, fn, keep }); }
 
   resize() {
     const w = Math.max(1, this.container.clientWidth);
@@ -594,6 +620,10 @@ export class LampStage {
     this.pumpKick = damp(this.pumpKick || 0, 0, 6, dt);
     this.pumpArm.rotation.z = Math.sin(t * 2) * 0.1 + this.pumpKick * 0.6;
 
+    if (this.stairGoal) {
+      const L = this.stairLight.position;
+      L.set(damp(L.x, this.stairGoal.x, 2, dt), damp(L.y, this.stairGoal.y, 2, dt), damp(L.z, this.stairGoal.z, 2, dt));
+    }
     // The finale's flood.
     this.flood.position.y = damp(this.flood.position.y, this.waterLevel * STEP_H + 0.15, 1.5, dt);
 

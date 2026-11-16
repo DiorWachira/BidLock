@@ -389,7 +389,7 @@ export class LampGame extends GameBase {
     const mine = win === e.localId;
     const rows = e.ranking.map((id) => {
       const p = e.players[id];
-      return { name: id === e.localId ? `${p.name} (you)` : p.name, color: this.colors[id], me: id === e.localId, note: id === win ? 'LIT THE LAMP' : p.ghost ? `wraith · step ${p.step}` : `${p.flames} flame${p.flames === 1 ? '' : 's'} · step ${p.step}` };
+      return { name: this.rowName(p), color: this.colors[id], me: id === e.localId, note: id === win ? 'LIT THE LAMP' : p.ghost ? `wraith · step ${p.step}` : `${p.flames} flame${p.flames === 1 ? '' : 's'} · step ${p.step}` };
     });
     this.showCard(this.resultsHtml({
       title: mine ? 'You light the lamp.' : `${e.players[win].name} lights the lamp.`,
