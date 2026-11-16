@@ -28,9 +28,12 @@ export const L_RULES = Object.freeze({
   finaleAt: 2, // two keepers or fewer still lit
   maxRounds: 7,
   finaleIntroTime: 5.5,
-  stairs: 10, // the lamp room is step 10
-  keeperStart: 2, // plus one step per spare flame
+  stairs: 12, // the lamp room is step 12
+  keeperStart: 1, // plus one step per spare flame
   wraithStart: 0,
+  maxHaunt: 3, // most steps a wraith can haunt its way up before the climb
+  wraithFloat: 2, // wraiths drift up two extra steps every sprint: the dead are light
+  knockback: 2, // steps a caught keeper slips back
   waterStart: -1,
   surgeFromSprint: 3, // from this sprint the water comes up two steps at a time
   highTideRound: 5, // from this round a lost survival game costs two flames
@@ -51,6 +54,7 @@ function shuffle(list, rng) {
 export class LampEngine {
   constructor() {
     this.listeners = new Map();
+    this.R = L_RULES;
     this.phase = L_PHASE.IDLE;
     this.players = [];
     this.round = 0;
@@ -90,17 +94,19 @@ export class LampEngine {
   }
 
   // seats: [{ name, kind: 'human' | 'ai', bot?: roster name }]
-  startMatch({ seats, seed = (Date.now() & 0x7fffffff), localId = 0, quiz = null } = {}) {
-    const list = (seats || []).slice(0, L_RULES.maxKeepers);
+  // `tuning` overrides any of L_RULES for one match (used to test the balance).
+  startMatch({ seats, seed = (Date.now() & 0x7fffffff), localId = 0, quiz = null, tuning = null } = {}) {
+    this.R = tuning ? Object.freeze({ ...L_RULES, ...tuning }) : L_RULES;
+    const list = (seats || []).slice(0, this.R.maxKeepers);
     if (list.length < 2) throw new Error('Last Lamp needs at least two keepers.');
-    this.options = { seed };
+    this.options = { seed, tuning };
     this.rng = mulberry32(seed);
     this.quiz = quiz || new QuizBank(this.rng);
     this.mirror = false;
     this.localId = localId;
     this.players = list.map((s, id) => ({
       id, name: s.name, isHuman: s.kind !== 'ai', bot: s.kind === 'ai' ? (s.bot || s.name) : null,
-      flames: L_RULES.flames, ghost: false, away: false, answer: null, wraithRight: 0, step: 0, marks: [null, null, null],
+      flames: this.R.flames, ghost: false, away: false, answer: null, wraithRight: 0, step: 0, marks: [null, null, null],
     }));
     this.round = 0;
     this.clock = 0;
@@ -114,7 +120,7 @@ export class LampEngine {
     this.ranking = [];
     this.reveal = null;
     this.plans = [];
-    this._phase(L_PHASE.INTRO, L_RULES.introTime);
+    this._phase(L_PHASE.INTRO, this.R.introTime);
     this.emit('matchStart', { count: this.players.length });
   }
 
@@ -228,7 +234,7 @@ export class LampEngine {
     this.reveal = null;
     this.miniLast = null;
     for (const p of this.players) p.answer = null;
-    this._phase(L_PHASE.QUESTION, L_RULES.questionTime);
+    this._phase(L_PHASE.QUESTION, this.R.questionTime);
     for (const p of this.players) {
       if (p.isHuman) continue;
       const prof = botProfile(p.bot);
@@ -249,7 +255,7 @@ export class LampEngine {
       (right ? safe : down).push(p.id);
     }
     this.reveal = { correct: this.correct, safe, down, picks };
-    this._phase(L_PHASE.REVEAL, L_RULES.revealTime);
+    this._phase(L_PHASE.REVEAL, this.R.revealTime);
     this.emit('reveal', { correct: this.correct, answer: this.question.answers[this.correct], safe, down });
   }
 
@@ -263,7 +269,7 @@ export class LampEngine {
       if (playable(k, down, safe)) { kind = k; this.miniCount += i + 1; break; }
     }
     this.pendingMini = kind || 'tide';
-    this._phase(L_PHASE.DESCENT, L_RULES.descentTime);
+    this._phase(L_PHASE.DESCENT, this.R.descentTime);
     this.emit('descent', { crew: down, kind: this.pendingMini });
   }
 
@@ -281,7 +287,7 @@ export class LampEngine {
     const losers = mini.losers.filter((id) => !this.players[id].ghost);
     // The lamp cannot go fully dark: if this would leave no keeper lit, the ones about
     // to be snuffed hold on with a single flame.
-    const cost = this.round >= L_RULES.highTideRound ? 2 : 1;
+    const cost = this.round >= this.R.highTideRound ? 2 : 1;
     const wouldDie = losers.filter((id) => this.players[id].flames <= cost);
     const lit = this.keepers.length;
     const mercy = wouldDie.length > 0 && lit - wouldDie.length <= 0;
@@ -292,27 +298,36 @@ export class LampEngine {
       p.flames = Math.max(0, p.flames - cost);
       if (p.flames <= 0) { p.ghost = true; snuffed.push(id); }
     }
-    this.miniLast = { kind: mini.kind, view: mini.view(), losers, snuffed, mercy, cost };
+    // Rewards (the plank saboteur's relit flame) come after the losses.
+    const relit = [];
+    for (const id of mini.reward) {
+      const p = this.players[id];
+      if (!p || p.ghost || p.flames >= this.R.flames) continue;
+      p.flames++;
+      relit.push(id);
+    }
+    this.miniLast = { kind: mini.kind, view: mini.view(), losers, snuffed, mercy, cost, relit };
     this.mini = null;
-    this._phase(L_PHASE.MINI_RESULT, L_RULES.miniResultTime);
-    this.emit('miniResult', { kind: mini.kind, losers, snuffed, mercy, cost });
+    this._phase(L_PHASE.MINI_RESULT, this.R.miniResultTime);
+    this.emit('miniResult', { kind: mini.kind, losers, snuffed, mercy, cost, relit });
   }
 
   _afterRound() {
-    if (this.keepers.length <= L_RULES.finaleAt || this.round >= L_RULES.maxRounds) this._finale();
+    if (this.keepers.length <= this.R.finaleAt || this.round >= this.R.maxRounds) this._finale();
     else this._ask();
   }
 
   // ---------- the climb ----------
   _finale() {
     for (const p of this.players) {
-      p.step = p.ghost ? L_RULES.wraithStart + (p.wraithRight >= 2 ? 1 : 0) : L_RULES.keeperStart + (p.flames - 1);
+      // Wraiths who kept answering right have been haunting the stairs: a step for every two.
+      p.step = p.ghost ? this.R.wraithStart + Math.min(this.R.maxHaunt, Math.floor(p.wraithRight / 2)) : this.R.keeperStart + (p.flames - 1);
       p.marks = [null, null, null];
     }
-    this.finale = { sprint: 0, water: L_RULES.waterStart, statements: null, truths: null, last: null };
+    this.finale = { sprint: 0, water: this.R.waterStart, statements: null, truths: null, last: null };
     this.question = null;
     this.reveal = null;
-    this._phase(L_PHASE.FINALE_INTRO, L_RULES.finaleIntroTime);
+    this._phase(L_PHASE.FINALE_INTRO, this.R.finaleIntroTime);
     this.emit('finaleStart', { keepers: this.keepers.map((p) => p.id), wraiths: this.wraiths.map((p) => p.id) });
   }
 
@@ -324,7 +339,7 @@ export class LampEngine {
     f.truths = trio.map((s) => s.truth);
     f.last = null;
     for (const p of this.players) p.marks = [null, null, null];
-    this._phase(L_PHASE.SPRINT, L_RULES.sprintTime);
+    this._phase(L_PHASE.SPRINT, this.R.sprintTime);
     for (const p of this.players) {
       if (p.isHuman) continue;
       const prof = botProfile(p.bot);
@@ -342,15 +357,19 @@ export class LampEngine {
     for (const p of this.players) {
       let n = 0;
       for (let i = 0; i < 3; i++) if (p.marks[i] === f.truths[i]) n++;
+      if (p.ghost) n += this.R.wraithFloat;
       moves[p.id] = n;
-      p.step = Math.min(L_RULES.stairs, p.step + n);
+      p.step = Math.min(this.R.stairs, p.step + n);
     }
     // A wraith that has reached a keeper's step takes their lantern: they trade places
     // in the story, and the keeper who was caught slips back a step as a wraith.
     const steals = [];
     const taken = new Set();
-    for (const g of this.wraiths.slice().sort((a, b) => b.step - a.step || a.id - b.id)) {
-      const prey = this.keepers.filter((k) => !taken.has(k.id) && k.step <= g.step && k.step < L_RULES.stairs).sort((a, b) => b.step - a.step || a.id - b.id)[0];
+    // Ties are settled by a draw for this sprint, not by seat number.
+    const draw = new Map(this.players.map((p) => [p.id, this.rng()]));
+    const tie = (a, b) => draw.get(a.id) - draw.get(b.id);
+    for (const g of this.wraiths.slice().sort((a, b) => b.step - a.step || tie(a, b))) {
+      const prey = this.keepers.filter((k) => !taken.has(k.id) && k.step <= g.step && k.step < this.R.stairs).sort((a, b) => b.step - a.step || tie(a, b))[0];
       if (!prey) continue;
       taken.add(prey.id);
       taken.add(g.id);
@@ -363,18 +382,18 @@ export class LampEngine {
       g.flames = Math.max(1, k.flames);
       k.ghost = true;
       k.flames = 0;
-      k.step = Math.max(0, k.step - 1);
+      k.step = Math.max(0, k.step - this.R.knockback);
     }
     // The water comes up (faster once the storm surge starts). A keeper it reaches is snuffed.
-    f.water += f.sprint >= L_RULES.surgeFromSprint ? 2 : 1;
+    f.water += f.sprint >= this.R.surgeFromSprint ? 2 : 1;
     const drowned = [];
     for (const k of this.keepers) {
-      if (k.step <= f.water && k.step < L_RULES.stairs) { k.ghost = true; k.flames = 0; drowned.push(k.id); }
+      if (k.step <= f.water && k.step < this.R.stairs) { k.ghost = true; k.flames = 0; drowned.push(k.id); }
     }
     // If the stairs are dark, the wraith highest up is relit.
     let relit = null;
     if (!this.keepers.length) {
-      const top = this.players.slice().sort((a, b) => b.step - a.step || a.id - b.id)[0];
+      const top = this.players.slice().sort((a, b) => b.step - a.step || tie(a, b))[0];
       top.ghost = false;
       top.flames = 1;
       top.step = Math.max(top.step, f.water + 1);
@@ -383,16 +402,20 @@ export class LampEngine {
     const steps = {};
     for (const p of this.players) steps[p.id] = p.step;
     f.last = { truths: f.truths.slice(), moves, steals, drowned, relit, water: f.water, steps };
-    this._phase(L_PHASE.SPRINT_RESULT, L_RULES.sprintResultTime);
+    this._phase(L_PHASE.SPRINT_RESULT, this.R.sprintResultTime);
     this.emit('sprintResult', { moves, steals, drowned, relit, water: f.water });
   }
 
   _afterSprint() {
     const f = this.finale;
-    const top = this.keepers.filter((k) => k.step >= L_RULES.stairs).sort((a, b) => b.flames - a.flames || a.id - b.id)[0];
+    // Two keepers into the lamp room together: more flames wins, then whoever had
+    // more marks right this sprint, then a draw.
+    const moves = f.last ? f.last.moves : {};
+    const draw = new Map(this.players.map((p) => [p.id, this.rng()]));
+    const top = this.keepers.filter((k) => k.step >= this.R.stairs).sort((a, b) => b.flames - a.flames || (moves[b.id] || 0) - (moves[a.id] || 0) || draw.get(a.id) - draw.get(b.id))[0];
     if (top) { this._win(top.id); return; }
-    if (f.sprint >= L_RULES.maxSprints) {
-      const best = this.keepers.slice().sort((a, b) => b.step - a.step || b.flames - a.flames || a.id - b.id)[0];
+    if (f.sprint >= this.R.maxSprints) {
+      const best = this.keepers.slice().sort((a, b) => b.step - a.step || b.flames - a.flames || draw.get(a.id) - draw.get(b.id))[0];
       this._win(best.id);
       return;
     }
@@ -432,6 +455,7 @@ export class LampEngine {
     this.mirror = true;
     this.localId = localId;
     this.options = s.o;
+    this.R = s.o && s.o.tuning ? Object.freeze({ ...L_RULES, ...s.o.tuning }) : L_RULES;
     this.phase = s.ph;
     this.t = s.t;
     this.total = s.tt;

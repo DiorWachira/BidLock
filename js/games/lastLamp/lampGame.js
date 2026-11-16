@@ -2,7 +2,7 @@
 // the climb, and the results. Rules live in lampEngine.js and undertowMinigames.js; the
 // set in lamp3d.js.
 
-import { LampEngine, L_PHASE, L_RULES } from './lampEngine.js';
+import { LampEngine, L_PHASE } from './lampEngine.js';
 import { MINI_INFO } from './undertowMinigames.js';
 import { LampStage } from './lamp3d.js';
 import { GameBase, esc } from '../../arcade/gameBase.js';
@@ -176,6 +176,7 @@ export class LampGame extends GameBase {
         else if (d.losers.length) this.note(`${d.losers.map((id) => this.nameOf(id)).join(', ')} lose${d.losers.length === 1 ? 's' : ''} ${d.cost === 2 ? 'two flames' : 'a flame'}${d.snuffed.length ? `. ${d.snuffed.map((id) => this.nameOf(id)).join(', ')} ${d.snuffed.length === 1 ? 'is' : 'are'} snuffed out` : ''}.`);
         else this.note('Everyone gets out of the Undertow with their flames.');
         if (d.mercy) this.shell.toast('The lamp cannot go fully dark: the last keepers hold on with one flame.');
+        if (d.relit && d.relit.length) { if (S) S.sync(e.players); if (d.relit.includes(e.localId)) { a.chime(); this.shell.toast('You caught someone on the loose plank: one of your flames is relit.'); } }
         break;
       case 'finaleStart':
         if (S) S.finale(e.players);
@@ -252,7 +253,10 @@ export class LampGame extends GameBase {
     if (!e.players.length) return;
     this.built = true;
     this.ensureColors();
-    if (this.stage) this.stage.setPlayers(e.players.map((p) => ({ id: p.id, name: p.name, color: this.colors[p.id], flames: p.flames, ghost: p.ghost })), e.localId);
+    if (this.stage) {
+      this.stage.buildStairs(e.R.stairs);
+      this.stage.setPlayers(e.players.map((p) => ({ id: p.id, name: p.name, color: this.colors[p.id], flames: p.flames, ghost: p.ghost })), e.localId);
+    }
     this.renderStatus();
   }
 
@@ -262,11 +266,12 @@ export class LampGame extends GameBase {
     const ph = e.phase;
     const label = ph === L_PHASE.INTRO ? 'LAST LAMP' : [L_PHASE.DESCENT, L_PHASE.MINI, L_PHASE.MINI_RESULT].includes(ph) ? 'THE UNDERTOW' : [L_PHASE.FINALE_INTRO, L_PHASE.SPRINT, L_PHASE.SPRINT_RESULT].includes(ph) ? 'THE CLIMB' : ph === L_PHASE.WINNER ? 'THE LAMP ROOM' : 'THE WATCH ROOM';
     this.el.stage.textContent = label;
-    this.el.round.textContent = e.finale ? `SPRINT ${e.finale.sprint || 0}` : e.round ? `QUESTION ${e.round} OF UP TO ${L_RULES.maxRounds}` : '';
+    this.el.round.textContent = e.finale ? `SPRINT ${e.finale.sprint || 0}` : e.round ? `QUESTION ${e.round} OF UP TO ${e.R.maxRounds}` : '';
     this.el.left.textContent = `${e.keepers.length} LIT · ${e.wraiths.length} WRAITH${e.wraiths.length === 1 ? '' : 'S'}`;
     this.el.roll.innerHTML = e.players.map((p) => {
-      const lamps = Array.from({ length: L_RULES.flames }, (_, i) => `<i data-on="${i < p.flames ? 1 : 0}"></i>`).join('');
-      const state = p.ghost ? 'WRAITH' : '';
+      const lamps = Array.from({ length: e.R.flames }, (_, i) => `<i data-on="${i < p.flames ? 1 : 0}"></i>`).join('');
+      const haunt = Math.min(e.R.maxHaunt, Math.floor((p.wraithRight || 0) / 2));
+      const state = p.ghost ? (e.finale ? 'WRAITH' : `WRAITH${haunt ? ` +${haunt}` : ''}`) : '';
       const answered = e.phase === L_PHASE.QUESTION && p.answer != null ? '<u title="answered">✓</u>' : '';
       const step = e.finale ? `<em>STEP ${p.step}</em>` : '';
       return `<li style="--who:${this.colors[p.id]}" data-ghost="${p.ghost ? 1 : 0}" data-me="${p.id === e.localId ? 1 : 0}"><b>${esc(p.id === e.localId ? 'YOU' : p.name)}</b><span class="ll-flames" aria-label="${p.flames} flames">${lamps}</span>${state ? `<span class="ll-tag">${state}</span>` : ''}${step}${answered}</li>`;
@@ -300,7 +305,7 @@ export class LampGame extends GameBase {
     } else if (ph === L_PHASE.MINI || ph === L_PHASE.MINI_RESULT) {
       html = this.miniHtml();
     } else if (ph === L_PHASE.FINALE_INTRO) {
-      html = '<p class="lbl">THE CLIMB</p><p class="ag-qtext">The lower door gives way and the sea comes in. Ten steps to the lamp room.</p><p class="ll-hint">Each sprint shows three statements. Mark each one true or false: every right mark is a step up. Wraiths climb too, and a wraith that reaches your step takes your lantern.</p>';
+      html = `<p class="lbl">THE CLIMB</p><p class="ag-qtext">The lower door gives way and the sea comes in. ${e.R.stairs} steps to the lamp room.</p><p class="ll-hint">Each sprint shows three statements. Mark each one true or false: every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up ${e.R.wraithFloat} extra steps a sprint, and a wraith that reaches your step takes your lantern and knocks you back ${e.R.knockback}.</p>`;
     } else if (ph === L_PHASE.SPRINT || ph === L_PHASE.SPRINT_RESULT) {
       html = this.sprintHtml();
     }
@@ -322,7 +327,7 @@ export class LampGame extends GameBase {
       const canRig = rig && v.saboteur === me;
       const canStep = v.stage === 'step' && v.steppers.includes(me);
       const mine = v.picks[me];
-      body = `<p class="ll-hint">${rig ? `${name(v.saboteur)} ${v.saboteur === me ? 'choose' : 'chooses'} a plank to loosen.` : v.stage === 'step' ? `${v.steppers.map(name).join(', ')}: pick a plank. One of them is loose.` : ''}</p>
+      body = `<p class="ll-hint">${rig ? `${name(v.saboteur)} ${v.saboteur === me ? 'choose' : 'chooses'} a plank to loosen. Catch someone and the saboteur relights a flame.` : v.stage === 'step' ? `${v.steppers.map(name).join(', ')}: pick a plank. One of them is loose.` : ''}</p>
         <div class="ll-planks" style="--n:${v.count}">${Array.from({ length: v.count }, (_, i) => {
           const who = Object.entries(v.picks).filter(([, p]) => p === i).map(([id]) => name(Number(id)));
           const st = v.rigged === i ? 'loose' : mine === i ? 'mine' : '';
@@ -339,11 +344,14 @@ export class LampGame extends GameBase {
         <p class="ll-hint">${v.stage === 'reveal' ? v.crew.map((id) => `${name(id)}: ${v.choices[id] === 'shove' ? 'SHOVED' : 'SHARED'}`).join(' · ') : `Chosen: ${(v.chosen || []).length} of ${v.crew.length}${chosen ? ' (you)' : ''}`}</p>`;
     } else if (v.kind === 'capstan') {
       const mine = v.current === me && v.stage === 'turn';
-      body = `<p class="ll-hint">Six sockets, one holds the lightning. On your turn pull the next socket, or spin the wheel first (a fresh start) and then pull. ${v.pulls} of ${v.maxPulls} pulls made.</p>
+      const odds = v.risk ? Math.round(1 / v.risk) : 0;
+      body = `<p class="ll-hint">Six sockets, one holds the lightning. Pull the next socket, or spin the wheel for a fresh one-in-six and pull twice. ${v.pulls} of ${v.maxPulls} pulls made.</p>
+        ${v.stage !== 'reveal' && odds ? `<p class="ll-odds">Next socket: <b>${odds === 1 ? 'certain' : `1 in ${odds}`}</b> · spin and pull twice: <b>about 1 in 3</b></p>` : ''}
         <ol class="ll-order">${v.order.map((id) => `<li data-now="${id === v.current && v.stage !== 'reveal' ? 1 : 0}">${name(id)}</li>`).join('')}</ol>
-        ${mine ? '<div class="ll-options ll-two"><button type="button" class="btn btn-live" data-act="pull" data-v="pull"><span class="b-label">PULL</span><kbd>1</kbd></button><button type="button" class="btn" data-act="pull" data-v="spin"><span class="b-label">SPIN, THEN PULL</span><kbd>2</kbd></button></div>' : ''}`;
+        ${mine ? '<div class="ll-options ll-two"><button type="button" class="btn btn-live" data-act="pull" data-v="pull"><span class="b-label">PULL</span><kbd>1</kbd></button><button type="button" class="btn" data-act="pull" data-v="spin"><span class="b-label">SPIN, PULL TWICE</span><kbd>2</kbd></button></div>' : ''}`;
     }
-    const result = ph(e) === L_PHASE.MINI_RESULT && e.miniLast ? `<p class="ll-result">${e.miniLast.losers.length ? `${e.miniLast.losers.map(name).join(', ')} lose${e.miniLast.losers.length === 1 ? 's' : ''} ${e.miniLast.cost === 2 ? 'two flames' : 'a flame'}.` : 'Nobody loses a flame.'}</p>` : '';
+    const relit = e.miniLast && e.miniLast.relit && e.miniLast.relit.length ? ` ${e.miniLast.relit.map(name).join(', ')} relight${e.miniLast.relit.length === 1 ? 's' : ''} a flame.` : '';
+    const result = ph(e) === L_PHASE.MINI_RESULT && e.miniLast ? `<p class="ll-result">${e.miniLast.losers.length ? `${e.miniLast.losers.map(name).join(', ')} lose${e.miniLast.losers.length === 1 ? 's' : ''} ${e.miniLast.cost === 2 ? 'two flames' : 'a flame'}.` : 'Nobody loses a flame.'}${relit}</p>` : '';
     return `<p class="lbl">THE UNDERTOW · ${esc(info.name.toUpperCase())}</p>${v.kind !== 'tide' ? `<div class="ag-bar"><i data-bar></i></div>` : '<div class="ag-bar"><i data-bar></i></div>'}${body}${result}`;
   }
 
@@ -360,11 +368,11 @@ export class LampGame extends GameBase {
       return `<li><p class="ll-stmt"><span>${esc(s.q)}</span> <b>→ ${esc(s.a)}</b></p>
         <div class="ll-tf"><button type="button" class="ans" data-act="mark" data-i="${i}" data-v="true" data-state="${st(true)}" ${shown ? 'disabled' : ''}>TRUE</button><button type="button" class="ans" data-act="mark" data-i="${i}" data-v="false" data-state="${st(false)}" ${shown ? 'disabled' : ''}>FALSE</button></div></li>`;
     }).join('');
-    const ladder = Array.from({ length: L_RULES.stairs + 1 }, (_, k) => {
-      const step = L_RULES.stairs - k;
+    const ladder = Array.from({ length: e.R.stairs + 1 }, (_, k) => {
+      const step = e.R.stairs - k;
       const here = e.players.filter((p) => p.step === step);
       const wet = step <= f.water;
-      return `<li data-wet="${wet ? 1 : 0}"><span>${step === L_RULES.stairs ? 'LAMP' : step}</span>${here.map((p) => `<i style="--who:${this.colors[p.id]}" data-ghost="${p.ghost ? 1 : 0}" title="${esc(p.name)}">${esc((p.id === e.localId ? 'YOU' : p.name).slice(0, 3))}</i>`).join('')}</li>`;
+      return `<li data-wet="${wet ? 1 : 0}"><span>${step === e.R.stairs ? 'LAMP' : step}</span>${here.map((p) => `<i style="--who:${this.colors[p.id]}" data-ghost="${p.ghost ? 1 : 0}" title="${esc(p.name)}">${esc((p.id === e.localId ? 'YOU' : p.name).slice(0, 3))}</i>`).join('')}</li>`;
     }).join('');
     return `<p class="lbl">THE CLIMB · SPRINT ${f.sprint} · WATER AT STEP ${Math.max(0, f.water)}</p>
       <div class="ag-bar"><i data-bar></i></div>

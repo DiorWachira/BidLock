@@ -11,9 +11,9 @@ import { Figure } from '../../arcade/figures3d.js';
 
 const R_TOWER = 9;
 const CELLAR = -12;
-const STEP_H = 0.95;
+const CLIMB_H = 9.5; // the stairs always rise this far; more steps means shallower ones
 const STEP_R = 6.6;
-const STEP_A = 0.27;
+const CLIMB_A = 2.75; // and wind this far round the back wall
 
 function stoneTexture() {
   return canvasTexture(512, 512, (c, w) => {
@@ -276,21 +276,39 @@ export class LampStage {
   }
 
   _stairs() {
-    // Stone steps up the wall, then the lamp room with its great lens.
+    this.stepMat = new THREE.MeshStandardMaterial({ color: 0x4a4540, roughness: 0.9 });
+    this.lensMat = new THREE.MeshStandardMaterial({ color: 0xfff3d0, emissive: 0xffc860, emissiveIntensity: 0.05, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.85 });
+    this.buildStairs(12);
+    this._floodMesh();
+  }
+
+  // Stone steps up the wall, then the lamp room with its great lens. The number of steps
+  // comes from the match's rules.
+  buildStairs(n) {
+    if (this.stairGroup && this.stairCount === n) return;
+    if (this.stairGroup) { this.scene.remove(this.stairGroup); disposeTree(this.stairGroup, new Set([this.stepMat, this.lensMat, this.ironMat])); }
+    this.stairCount = n;
+    this.stepH = CLIMB_H / n;
+    this.stepA = CLIMB_A / n;
+    const g = new THREE.Group();
     this.steps = [];
-    const stepMat = new THREE.MeshStandardMaterial({ color: 0x4a4540, roughness: 0.9 });
-    for (let k = 0; k <= 10; k++) {
+    for (let k = 0; k <= n; k++) {
       const a = this._stepAngle(k);
-      const m = add(this.scene, new THREE.BoxGeometry(2.0, 0.2, 1.3), stepMat, Math.cos(a) * STEP_R, k * STEP_H - 0.1, Math.sin(a) * STEP_R);
+      const m = add(g, new THREE.BoxGeometry(2.0, 0.2, 1.3), this.stepMat, Math.cos(a) * STEP_R, k * this.stepH - 0.1, Math.sin(a) * STEP_R);
       m.rotation.y = -a;
       m.receiveShadow = true;
       this.steps.push(m);
     }
-    const top = 10 * STEP_H;
+    const top = n * this.stepH;
     this.lampRoomY = top;
-    add(this.scene, new THREE.CylinderGeometry(4.2, 4.2, 0.25, 32), this.ironMat, 0, top + 1.2, 0);
-    this.lensMat = new THREE.MeshStandardMaterial({ color: 0xfff3d0, emissive: 0xffc860, emissiveIntensity: 0.05, roughness: 0.1, metalness: 0.2, transparent: true, opacity: 0.85 });
-    this.lens = add(this.scene, new THREE.CylinderGeometry(1.1, 1.1, 2.2, 12), this.lensMat, 0, top + 2.5, 0);
+    add(g, new THREE.CylinderGeometry(4.2, 4.2, 0.25, 32), this.ironMat, 0, top + 1.2, 0);
+    this.lens = add(g, new THREE.CylinderGeometry(1.1, 1.1, 2.2, 12), this.lensMat, 0, top + 2.5, 0);
+    this.lampLight.position.y = top + 2.9;
+    this.scene.add(g);
+    this.stairGroup = g;
+  }
+
+  _floodMesh() {
     // The finale's rising water, a plane that climbs the tower.
     this.floodMat = new THREE.MeshStandardMaterial({ color: 0x0f4552, roughness: 0.2, metalness: 0.5, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
     this.flood = new THREE.Mesh(new THREE.CircleGeometry(R_TOWER - 0.05, 40), this.floodMat);
@@ -302,11 +320,11 @@ export class LampStage {
   }
 
   // The stairs climb round the back half of the tower, left to right, facing the camera.
-  _stepAngle(k) { return Math.PI + 0.25 + k * STEP_A; }
+  _stepAngle(k) { return Math.PI + 0.25 + k * this.stepA; }
   stepPos(k, lane = 0) {
     const a = this._stepAngle(k) + ((lane % 3) - 1) * 0.05;
     const r = STEP_R - 0.5 + (lane % 3) * 0.4;
-    return { x: Math.cos(a) * r, y: k * STEP_H, z: Math.sin(a) * r };
+    return { x: Math.cos(a) * r, y: k * this.stepH, z: Math.sin(a) * r };
   }
 
   // ---------- keepers ----------
@@ -503,7 +521,7 @@ export class LampStage {
 
   _climbCam(players, cut = false) {
     const lead = Math.max(...players.filter((p) => !p.ghost).map((p) => p.step), 0);
-    const sp = this.stepPos(Math.min(10, lead + 1));
+    const sp = this.stepPos(Math.min(this.stairCount, lead + 1));
     // Stay inside the tower, a little below the leaders, looking up the stairs.
     // Climbers sit in the upper half of the frame, above the question panel.
     this._goCam([sp.x * 0.3, Math.max(2.2, sp.y + 0.5), 6.6], [sp.x * 0.8, sp.y - 1.8, -4], cut);
@@ -625,7 +643,7 @@ export class LampStage {
       L.set(damp(L.x, this.stairGoal.x, 2, dt), damp(L.y, this.stairGoal.y, 2, dt), damp(L.z, this.stairGoal.z, 2, dt));
     }
     // The finale's flood.
-    this.flood.position.y = damp(this.flood.position.y, this.waterLevel * STEP_H + 0.15, 1.5, dt);
+    this.flood.position.y = damp(this.flood.position.y, this.waterLevel * this.stepH + 0.15, 1.5, dt);
 
     for (const f of this.figures.values()) {
       if (this.drop && this.drop.some((d) => d.f === f)) continue;

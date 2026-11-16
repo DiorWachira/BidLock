@@ -13,10 +13,10 @@ import { makeSum } from '../../arcade/quizBank.js';
 export const MINI_KINDS = Object.freeze(['planks', 'tide', 'lifeboat', 'capstan']);
 
 export const MINI_INFO = Object.freeze({
-  planks: { name: 'The Loose Plank', line: 'One plank has been loosened. Pick where you stand.' },
+  planks: { name: 'The Loose Plank', line: 'One plank has been loosened. Catch someone and the saboteur relights a flame.' },
   tide: { name: 'The Rising Tide', line: 'Work the pump. Five right sums before the water wins.' },
   lifeboat: { name: 'The Lifeboat', line: 'Share the boat, or shove. Choose in secret.' },
-  capstan: { name: 'The Storm Capstan', line: 'Six sockets, one holds the lightning. Take your turn at the wheel.' },
+  capstan: { name: 'The Storm Capstan', line: 'Six sockets, one holds the lightning. Pull, or spin and pull twice.' },
 });
 
 class Mini {
@@ -29,6 +29,7 @@ class Mini {
     this.losers = [];
     this.detail = {};
     this.plans = []; // bots: [{ at, run }] against this.clock
+    this.reward = []; // players who earn a flame back
     this.clock = 0;
   }
 
@@ -119,6 +120,8 @@ export class Planks extends Mini {
     // A saboteur from the crew who catches nobody goes through their own plank.
     const backfired = losers.length === 0 && this.crew.includes(this.saboteur);
     if (backfired) losers = [this.saboteur];
+    // A saboteur who catches someone relights one of their own flames.
+    else if (losers.length) this.reward = [this.saboteur];
     this._finish(losers, { rigged: this.rigged, picks: { ...this.picks }, backfired });
   }
 
@@ -273,25 +276,33 @@ export class Capstan extends Mini {
     const id = this.current;
     if (!this.isBot(id)) return;
     const rng = this.e.rng;
-    this.plans.push({ at: this.clock + 1.2 + rng() * 2.4, run: () => { if (this.stage === 'turn' && this.current === id) this.input(id, { spin: rng() < 0.4 }); } });
+    // Bots spin when the next socket is worse than about one in three.
+    this.plans.push({ at: this.clock + 1.2 + rng() * 2.4, run: () => { if (this.stage === 'turn' && this.current === id) this.input(id, { spin: this.risk() > 0.3 + (rng() - 0.5) * 0.12 }); } });
   }
 
-  // On your turn: pull the next socket, or spin the wheel first and then pull.
+  // On your turn: pull the next socket, or spin the wheel (a fresh one-in-six) and pull
+  // twice. Without the extra pull, spinning would always be the safer choice.
   input(id, { spin } = {}) {
     if (this.stage !== 'turn' || id !== this.current) return false;
     const rng = this.e.rng;
     if (spin) { this.bolt = Math.floor(rng() * this.sockets); this.at = 0; }
-    const struck = this.at === this.bolt;
-    this.at++;
-    this.pulls++;
-    this.lastAction = { id, spin: !!spin, struck, pull: this.pulls };
-    this.e.emit('mini', { kind: 'capstan', step: 'pull', id, spin: !!spin, struck, pull: this.pulls });
-    if (struck) { this._finish([id], { struck: id, pulls: this.pulls }); return true; }
-    if (this.pulls >= this.maxPulls) { this._finish([], { struck: null, pulls: this.pulls }); return true; }
+    const count = spin ? 2 : 1;
+    for (let k = 0; k < count; k++) {
+      const struck = this.at === this.bolt;
+      this.at++;
+      this.pulls++;
+      this.lastAction = { id, spin: !!spin, struck, pull: this.pulls };
+      this.e.emit('mini', { kind: 'capstan', step: 'pull', id, spin: !!spin && k === 0, struck, pull: this.pulls });
+      if (struck) { this._finish([id], { struck: id, pulls: this.pulls }); return true; }
+      if (this.pulls >= this.maxPulls) { this._finish([], { struck: null, pulls: this.pulls }); return true; }
+    }
     this.stage = 'hold';
     this.t = 1.5;
     return true;
   }
+
+  // The chance that the next pull strikes, if you do not spin.
+  risk() { return 1 / Math.max(1, this.sockets - this.at); }
 
   update(dt) {
     this.clock += dt;
@@ -312,7 +323,7 @@ export class Capstan extends Mini {
 
   view() {
     return {
-      kind: 'capstan', stage: this.stage, t: this.t, crew: this.crew, order: this.order, current: this.current,
+      kind: 'capstan', stage: this.stage, t: this.t, crew: this.crew, order: this.order, current: this.current, risk: this.stage === 'reveal' ? null : this.risk(),
       pulls: this.pulls, maxPulls: this.maxPulls, sockets: this.sockets, lastAction: this.lastAction, losers: this.losers, detail: this.stage === 'reveal' ? this.detail : {},
     };
   }

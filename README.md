@@ -38,14 +38,16 @@ All three share the room-code lobby, the sound engine and the trivia question en
 
 ![Trapdoor Royale](screenshots/royale-question.png)
 
-A question goes up on the board over the arena with four answers, one per coloured platform. Run to the platform you trust (WASD or the arrow keys, `1` to `4`, or click the platform or its answer). You can change your mind until the clock runs out, and `E` shoves anyone standing near you, which is for show and never changes an answer. When time is up the bridges retract, the spotlights come on, and the three wrong platforms open like trapdoors. Anyone on them, or still dithering in the middle, falls.
+A question goes up on the board over the arena with four answers, one per coloured platform. Run to the platform you trust (WASD or the arrow keys, `1` to `4`, or click the platform or its answer). You can change your mind until the clock runs out. Once a question, `E` shoves: everyone sharing your platform is pinned there for two seconds, while you are free to leave. When time is up the bridges retract, the spotlights come on, and the three wrong platforms open like trapdoors. Anyone on them, or still dithering in the middle, falls.
 
 - **Standard rounds** give 12 seconds. From question 4 they are **speed rounds** of 7 seconds.
 - With three or fewer left it is **sudden death**: if everyone finds the right platform, the last one to arrive drops anyway.
 - If nobody finds it, the floor holds and everyone goes again.
+- The first contestant to reach the right platform earns a **safety net** (a ring at their feet), which catches them on one wrong answer. Nets do not help in sudden death.
+- Once you are out you can still **call** each answer from the sidelines; right calls are counted on the results card. Solo, you can **skip to the end**, and once every person in a room is out the bots finish at four times speed.
 - The last one standing rises on the central pillar as champion.
 
-Up to twelve contestants: everyone in the room, then bots. Each bot has a knowledge level and a habit: some commit early, some follow the crowd, some change platform at the last second. The platforms use the Okabe-Ito colours, which stay distinct for common colour-vision differences, and always carry their letter too.
+Up to twelve contestants: everyone in the room, then bots. Each bot has a knowledge level and a habit: some commit early, some follow the crowd, some change platform at the last second. The answer panel does not count heads; you read the crowd in the arena. The platforms use the Okabe-Ito colours, which stay distinct for common colour-vision differences, and always carry their letter too.
 
 ### Last Lamp
 
@@ -55,14 +57,14 @@ Six keepers, a storm, and three flames each, carried in a lantern. Every round e
 
 | Survival game | How it works |
 | --- | --- |
-| **The Loose Plank** | A keeper who answered right secretly loosens one plank. Everyone below picks a plank to stand on. Whoever picked the loose one goes into the water. If nobody did, and the saboteur was one of the crew, the saboteur goes through it. |
+| **The Loose Plank** | A keeper who answered right secretly loosens one plank. Everyone below picks a plank to stand on. Whoever picked the loose one goes into the water, and a saboteur who catches someone relights one of their own flames. If nobody was caught and the saboteur was one of the crew, the saboteur goes through it. |
 | **The Rising Tide** | Work the pump: five right quick sums each before the water wins. A wrong sum costs a stroke. |
 | **The Lifeboat** | Share or shove, chosen in secret. If everyone shares, everyone is safe. If anyone shoves, the shovers stay dry and everyone who shared goes over. If everyone shoves, everyone goes over. |
-| **The Storm Capstan** | Six sockets, one holds the lightning. On your turn, pull the next socket, or spin the wheel first and then pull. |
+| **The Storm Capstan** | Six sockets, one holds the lightning. On your turn, pull the next socket, or spin the wheel for a fresh one-in-six and pull twice. The panel shows the odds: spinning only pays once the next socket is worse than about one in three. |
 
-A keeper with no flames becomes a **wraith**: see-through, still answering, and a wraith with two or more right answers starts the finale a step higher. The lamp can never go fully dark: if a game would snuff out the last keepers, they hold on with one flame.
+A keeper with no flames becomes a **wraith**: see-through and still answering. Every two right answers is a step of head start on the stairs, up to three. The lamp can never go fully dark: if a game would snuff out the last keepers, they hold on with one flame.
 
-When two keepers or fewer are left, or after seven questions, the storm breaks the lower door and it ends on **the climb**. Each sprint shows three statements ("Who wrote Things Fall Apart? → Wole Soyinka"); mark each true or false, and every right mark is a step up. Keepers start higher the more flames they have. The water rises a step each sprint (two from the third), and a keeper it reaches is snuffed. A wraith that reaches a keeper's step takes their lantern, and the keeper becomes the wraith. The first keeper to reach the lamp room, step 10, lights the lamp and wins.
+When two keepers or fewer are left, or after seven questions, the storm breaks the lower door and it ends on **the climb**. Each sprint shows three statements ("Who wrote Things Fall Apart? → Wole Soyinka"); mark each true or false, and every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up two extra steps a sprint, and a wraith that reaches a keeper's step takes their lantern: the keeper becomes the wraith and slips back two steps. The water rises a step each sprint (two from the third), and a keeper it reaches is snuffed. The first keeper into the lamp room, step 12, lights the lamp and wins. In simulations about one match in seven is won by someone who had already become a wraith.
 
 ### How the quiz games fit in
 

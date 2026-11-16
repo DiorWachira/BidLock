@@ -103,11 +103,17 @@ try {
     await waitPhase(p, 'QUESTION');
     ok('a question goes up with four platforms', (await p.locator('.tr-ans').count()) === 4 && !(await p.locator('#tr-card').isVisible()));
     ok('the right answer is not shown before the drop', (await p.locator('.tr-ans[data-state="right"], .tr-ans[data-state="wrong"]').count()) === 0);
+    // A bot's shove can pin you for two seconds; wait that out before each move.
+    const unpinned = () => p.waitForFunction(() => { const e = window.__bidlock.arcade.engine; return !e.stunned(e.me); }, null, { timeout: 5000 });
+    await unpinned();
     await p.keyboard.press('3');
     ok('a number key picks a platform', (await p.evaluate(() => window.__bidlock.arcade.engine.me.choice)) === 2);
+    await unpinned();
     await p.locator('.tr-ans[data-p="0"]').click();
     ok('clicking an answer switches platform', (await p.evaluate(() => window.__bidlock.arcade.engine.me.choice)) === 0);
+    ok('the answers no longer count the crowd', (await p.locator('.tr-crowd').allTextContents()).every((t) => !/●/.test(t)));
     const before = await p.evaluate(() => { const f = window.__bidlock.arcade.stage.figures.get(0); return [f.pos.x, f.pos.z]; });
+    await unpinned();
     await p.keyboard.down('ArrowRight');
     await p.waitForTimeout(700);
     await p.keyboard.up('ArrowRight');
@@ -117,12 +123,29 @@ try {
     await p.waitForTimeout(1200);
     await shot(p, 'royale-question');
     // Stand on the right platform so this contestant survives the first drop.
-    await p.evaluate(() => { const a = window.__bidlock.arcade; a.send('move', { to: a.engine.correct }); });
+    await unpinned();
+    await p.evaluate(() => { const a = window.__bidlock.arcade; a.engine.players[0].stunUntil = -1; a.send('move', { to: a.engine.correct }); });
     await waitPhase(p, 'DROP');
     ok('the wrong platforms drop and the answer is shown', (await p.locator('.tr-ans[data-state="right"]').count()) === 1);
     ok('you survive on the right platform', await p.evaluate(() => window.__bidlock.arcade.engine.me.alive));
     await p.waitForTimeout(1300);
     await shot(p, 'royale-drop');
+    // Knock yourself out, then call an answer from the sidelines and skip to the end.
+    await runUntil(p, "e.phase === 'QUESTION'");
+    await p.evaluate(() => { const e = window.__bidlock.arcade.engine; e.players[0].net = false; e.players[0].stunUntil = -1; e.moveFor(0, (e.correct + 1) % 4); });
+    await runUntil(p, "e.phase === 'DROP' || e.phase === 'CHAMPION'");
+    if (!(await p.evaluate(() => window.__bidlock.arcade.engine.me.alive)) && (await gphase(p)) !== 'CHAMPION') {
+      await runUntil(p, "e.phase === 'QUESTION' || e.phase === 'CHAMPION'");
+      if ((await gphase(p)) === 'QUESTION') {
+        await p.waitForTimeout(200);
+        await p.locator('.tr-ans[data-p="1"]').click();
+        ok('once out, you can call the answer', (await p.evaluate(() => window.__bidlock.arcade.engine.me.call)) === 1 && (await p.locator('.tr-answers[data-calling="1"]').count()) === 1);
+        ok('the skip button appears when you are out', await p.locator('#tr-skip').isVisible());
+        await p.waitForTimeout(800);
+        await shot(p, 'royale-calling');
+        await p.locator('#tr-skip').click();
+      }
+    }
     await runUntil(p, "e.phase === 'CHAMPION'");
     await p.waitForSelector('#tr-card:not([hidden]) .ag-rank');
     ok('a champion is crowned with a full ranking', (await p.locator('#tr-card .ag-rank li').count()) === 12);

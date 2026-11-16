@@ -153,6 +153,14 @@ export class Figure {
       this.lantern = lantern;
     }
 
+    // A ring at the feet: a Trapdoor Royale safety net.
+    this.netRing = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.04, 6, 28), new THREE.MeshBasicMaterial({ color: 0xf3ead6, toneMapped: false }));
+    this.netRing.rotation.x = Math.PI / 2;
+    this.netRing.position.y = 0.04;
+    this.netRing.visible = false;
+    this.group.add(this.netRing);
+    this.stunT = 0;
+
     this.plate = nameplate(local && String(name).toUpperCase() !== 'YOU' ? `${name} (you)` : name, color);
     this.plate.position.y = 1.86 + (id % 3) * 0.34;
     this.group.add(this.plate);
@@ -169,6 +177,8 @@ export class Figure {
   cheer(seconds = 2.4) { this.cheerT = seconds; }
   rock() { this.rockT = 0.6; }
   setTilt(v) { this.tiltTarget = v; }
+  setNet(on) { this.netRing.visible = on; }
+  stun(seconds) { this.stunT = seconds; }
 
   fall() {
     if (this.state === 'fall') return;
@@ -211,6 +221,8 @@ export class Figure {
     if (this.hidden) return;
     const g = this.group;
     this.cheerT = Math.max(0, this.cheerT - dt);
+    this.stunT = Math.max(0, this.stunT - dt);
+    if (this.netRing.visible) this.netRing.rotation.z += dt * 2;
     this.rockT = Math.max(0, this.rockT - dt);
     this.tilt = damp(this.tilt, this.tiltTarget, 5, dt);
 
@@ -288,7 +300,9 @@ export class Figure {
       this.armR.rotation.set(-1.15 + Math.sin(t * 1.7 + this.phase) * 0.05, 0, -0.1);
       this.flameMat.color.setRGB(1, 0.62 + Math.sin(t * 19 + this.phase) * 0.08, 0.16);
     }
-    this.head.rotation.z = this.tilt;
+    // Pinned: the head goes round in small circles.
+    this.head.rotation.z = this.tilt + (this.stunT > 0 ? Math.sin(t * 14) * 0.35 : 0);
+    if (this.stunT > 0) this.head.rotation.x = Math.cos(t * 14) * 0.25;
     const rock = this.rockT > 0 ? Math.sin(this.rockT * 30) * 0.3 * (this.rockT / 0.6) : 0;
     const float = this.ghost ? 0.3 + Math.sin(t * 1.6 + this.phase) * 0.1 : 0;
     this.root.position.y = bob + float;

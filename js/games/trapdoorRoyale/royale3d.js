@@ -370,14 +370,26 @@ export class RoyaleStage {
     return this.platformAt(f.pos.x, f.pos.z);
   }
 
-  shove(id) {
+  shove(id, hit = []) {
     const f = this.figures.get(id);
     if (!f || f.hidden) return;
     f.cheer(0.5);
     this.sparks.emit({ x: f.pos.x, y: 1, z: f.pos.z, n: 26, speed: 3, up: 0.3, colors: [0xf3ead6, 0xffd27a], life: 0.5, gravity: 1, drag: 2 });
     for (const [oid, o] of this.figures) {
       if (oid === id || o.hidden) continue;
-      if (Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z) < 1.9) o.rock();
+      if (hit.includes(oid)) { o.stun(2); this.sparks.emit({ x: o.pos.x, y: 1.9, z: o.pos.z, n: 14, speed: 1.2, up: 0.4, colors: [0xffe08a], life: 1.6, gravity: 0, drag: 2.5 }); }
+      else if (Math.hypot(o.pos.x - f.pos.x, o.pos.z - f.pos.z) < 1.9) o.rock();
+    }
+  }
+
+  // Rings at the feet of anyone holding a safety net; a flash for anyone it just caught.
+  nets(holders, saved) {
+    for (const [id, f] of this.figures) f.setNet(holders.includes(id));
+    for (const id of saved) {
+      const f = this.figures.get(id);
+      if (!f) continue;
+      f.cheer(1.2);
+      this.sparks.emit({ x: f.pos.x, y: 0.2, z: f.pos.z, n: 50, speed: 3, up: 1.2, colors: [0xf3ead6, 0x9fd4e8], life: 1, gravity: 4, drag: 1 });
     }
   }
 

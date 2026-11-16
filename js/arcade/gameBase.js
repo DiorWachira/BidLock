@@ -63,7 +63,7 @@ export class GameBase {
       e.update(dt);
       return;
     }
-    this.acc += dt * this.shell.debug.speed;
+    this.acc += dt * this.shell.debug.speed * this.speedBoost();
     let n = 0;
     while (this.acc >= STEP && n < 90) {
       if (this.shell.debug.auto) this.autopilot();
@@ -176,6 +176,7 @@ export class GameBase {
   apply() { return false; }
   isOver() { return false; }
   autopilot() {}
+  speedBoost() { return 1; }
   key() { return false; }
   keyup() {}
 }
