@@ -262,6 +262,7 @@ class PeerTransport {
       if (attempt < JOIN_ATTEMPTS) await new Promise((r) => setTimeout(r, result.why === 'no-room' ? 2500 : 600));
     }
     const relay = hasRelay();
+    console.warn(`[BidLock rooms] join ${code} failed after ${JOIN_ATTEMPTS} tries: ${lastWhy}; relay configured: ${relay ? 'yes' : 'no'}`);
     if (lastWhy === 'no-room') throw new Error(`No room with the code ${code}. Check it with the host, and make sure they still have BidLock open.`);
     if (lastWhy === 'ice') {
       throw new Error(relay

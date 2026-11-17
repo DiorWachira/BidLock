@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LobbyManager, WIRE } from '../js/net/lobbyManager.js';
 import { loadIceServers, iceServers, hasRelay, STUN_SERVERS } from '../js/net/iceServers.js';
+import { explain, summary, checkConnection } from '../js/net/netCheck.js';
 import { AuctionEngine, PHASE, soloSeats } from '../js/engine/auctionEngine.js';
 import { RoyaleEngine, R_PHASE } from '../js/games/trapdoorRoyale/royaleEngine.js';
 import { SampleArenaEngine, S_PHASE } from '../js/games/sampleArena/sampleArenaEngine.js';
@@ -136,4 +137,28 @@ test('relay servers: STUN always, TURN when configured or fetched', async () => 
   assert.equal(hasRelay(), true);
   const failed = await loadIceServers({ url: 'https://example.test/other', fetchImpl: async () => { throw new Error('down'); } });
   assert.ok(failed.length >= before, 'a failed fetch never removes STUN');
+});
+
+test('check my connection: every verdict, in plain words', async () => {
+  const base = { webrtc: true, host: 1, mdns: 1, srflx: 1, relay: 0, relayTcp: 0, signalling: 'ok', errors: [], relayConfigured: false, ms: 900 };
+  const warn = explain(base);
+  assert.equal(warn.verdict, 'warn');
+  assert.ok(warn.lines.some((l) => l.includes('room server can be reached')) && /school Wi-Fi/.test(warn.fix));
+  assert.equal(explain({ ...base, relay: 2, relayTcp: 1, relayConfigured: true }).verdict, 'ok');
+  const relay = explain({ ...base, srflx: 0 });
+  assert.equal(relay.verdict, 'relay');
+  assert.ok(/blocks the connection helper/.test(relay.lines.join(' ')) && /hotspot/.test(relay.fix));
+  const brave = explain({ ...base, host: 0, mdns: 0, srflx: 0 });
+  assert.equal(brave.verdict, 'bad');
+  assert.ok(/Brave/.test(brave.fix) && /uBlock/.test(brave.fix));
+  const off = explain({ ...base, webrtc: false });
+  assert.equal(off.verdict, 'bad');
+  const server = explain({ ...base, signalling: 'blocked' });
+  assert.equal(server.verdict, 'bad');
+  assert.ok(/0\.peerjs\.com/.test(server.lines[0]));
+  assert.ok(summary({ ...base, errors: ['x'] }).startsWith('[BidLock rooms] server:ok webrtc:on host:1(mdns 1) stun:1 relay:0'));
+  // In Node there is no WebRTC: the check says so instead of throwing.
+  const r = await checkConnection({ fetchImpl: async () => ({ ok: true }), timeoutMs: 500 });
+  assert.equal(r.webrtc, false);
+  assert.equal(r.signalling, 'ok');
 });
