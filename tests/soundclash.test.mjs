@@ -8,7 +8,7 @@ import {
 } from '../js/games/sampleArena/sampleArenaEngine.js';
 import {
   GENRES, GENRE_CHOICES, genreById, cleanTitle, parseResults, buildRounds, offlineRounds, planSearches, loadMatch, ROUND_COUNT,
-  LEVELS, levelById, isHit, hitsFor,
+  LEVELS, levelById, isHit, hitsFor, SIDE_ROUNDS,
 } from '../js/games/sampleArena/itunesLoader.js';
 import { HITS } from '../js/games/sampleArena/hits.js';
 import { EASY_WARPS } from '../js/games/sampleArena/sampleArenaEngine.js';
@@ -322,4 +322,38 @@ test('hits and difficulty: famous songs on easy and normal, deep cuts on hard', 
   e.startMatch({ seats: table(0, 3), seed: 5, match: { source: 'offline', genre: 'all', level: 'easy', rounds: offlineRounds(mulberry32(5)) } });
   assert.ok(e.rounds.slice(0, -1).every((x) => EASY_WARPS.includes(x.warp)));
   assert.equal(e.options.level, 'easy');
+});
+
+test('the anime crate leans anime: games and memes are a side dish', () => {
+  const anime = GENRES.find((g) => g.id === 'anime');
+  const core = anime.terms.filter((t) => !anime.side.includes(t));
+  assert.ok(core.length >= 12 && anime.side.length >= 5);
+  let sideMatches = 0;
+  for (let seed = 1; seed <= 400; seed++) {
+    const plan = planSearches('anime', mulberry32(seed));
+    assert.equal(plan.length, 3);
+    assert.equal(new Set(plan.map((p) => p.term)).size, 3);
+    const sides = plan.filter((p) => p.side).length;
+    assert.ok(sides <= 1, 'never more than one game or meme artist');
+    assert.ok(plan.filter((p) => core.includes(p.term)).length >= 2, 'always at least two anime artists');
+    sideMatches += sides;
+  }
+  assert.ok(sideMatches > 60 && sideMatches < 140, `a side artist in ${sideMatches} of 400 matches`);
+  // The shuffle only ever takes anime artists from this crate.
+  for (let seed = 1; seed <= 100; seed++) for (const p of planSearches('all', mulberry32(seed))) assert.ok(!p.side);
+  // Rounds: at most SIDE_ROUNDS from the side artist, spread through the match.
+  const pool = [];
+  for (const [artist, side] of [['Anime A', false], ['Anime B', false], ['Meme C', true]]) {
+    for (let i = 0; i < 12; i++) pool.push({ id: `${artist}${i}`, title: `${artist} Song ${i}`, artist, url: 'u', art: 'a', link: '', pop: 1 - i / 12, hit: i < 6, side, synth: null, genre: 'anime' });
+  }
+  const positions = new Set();
+  for (let seed = 1; seed <= 60; seed++) {
+    for (const level of ['easy', 'normal', 'hard']) {
+      const rounds = buildRounds(pool, mulberry32(seed), ROUND_COUNT, { level });
+      const side = rounds.filter((r) => r.target.side);
+      assert.ok(side.length <= SIDE_ROUNDS, `${level}: ${side.length} side rounds`);
+      if (level !== 'hard') rounds.forEach((r, i) => { if (r.target.side) positions.add(i); });
+    }
+  }
+  assert.ok(positions.size >= 6, `side rounds turn up anywhere in the match (${[...positions].join(',')})`);
 });
