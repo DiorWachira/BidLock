@@ -75,6 +75,7 @@ export class LobbyView {
     this.el.root.hidden = false;
     this.el.scrim.hidden = false;
     if (prefillCode) this.el.code.value = prefillCode;
+    this.lobby.warm();
     this.render(this.lobby.state);
     requestAnimationFrame(() => {
       this.el.root.classList.add('on');
@@ -115,7 +116,7 @@ export class LobbyView {
     try {
       const code = await this.lobby.create(name);
       this.lobby.setGame(this.defaultGame());
-      this.status(`Room ${code} is open. Send the code to your friends.`);
+      this.status(`Room ${code} is open. Send the code to your friends, then come back here: friends can only get in while BidLock is open on your screen.`);
     } catch (err) {
       this.status(err.message || 'Could not open a room.', true);
     } finally {
@@ -133,7 +134,11 @@ export class LobbyView {
     this.busy = true;
     this.status(`Joining ${code}…`);
     try {
-      await this.lobby.join(name, code);
+      await this.lobby.join(name, code, {
+        onProgress: (n, of, why) => this.status(why === 'no-room'
+          ? `Room ${code} is not answering yet (try ${n} of ${of}). If the host is sending the code from their phone, they need to come back to BidLock.`
+          : `Still connecting to ${code} (try ${n} of ${of})…`),
+      });
       this.status(`You are in room ${code}. Waiting for the host to start.`);
     } catch (err) {
       this.status(err.message || 'Could not join that room.', true);

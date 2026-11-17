@@ -235,7 +235,11 @@ The host's browser runs the only real auction engine. Every other player connect
 
 A player's seat is taken from their connection, never from the message, and the answer to an Oracle question is not sent to the room until it has been given.
 
-**Limits.** There is no relay server, so two players who are both behind strict firewalls (some offices, universities and mobile networks) may not be able to connect. The public PeerJS signalling server is a shared free service and is occasionally busy. If the host's tab is in the background the match keeps running, but browsers slow background timers, so the host should keep the tab in front.
+**Joining is patient.** A guest retries for about 50 seconds before giving up, and the lobby says what is happening ("Still connecting… try 2 of 4"). This covers the most common failure: a host on a phone who switches to a messaging app to send the code. That pauses the page and takes the room off the signalling server, so friends joining at that moment cannot get in. The host reconnects as soon as they come back, and the waiting guests get in then. The host's lobby says so: send the code, then come back.
+
+**Strict networks need a relay.** Browsers connect directly, with STUN servers (Google's and Cloudflare's) to find each other. A player behind a strict NAT, which is common on mobile data and some office or campus networks, cannot connect directly and needs a TURN relay. PeerJS used to bundle free TURN servers, but those hostnames no longer exist, so BidLock ships with no relay. To add one, sign up for a TURN provider with a free tier (Metered and ExpressTURN are two) and paste the servers it gives you into `TURN_SERVERS` in `js/net/iceServers.js`. This is a static site, so those credentials are public: use the provider's restricted, low-quota ones. For a quick test without editing code, set `localStorage['bidlock.turn']` to the same list as JSON. When a direct connection fails, the joining player is told it is their network, not the code.
+
+The public PeerJS signalling server is a shared free service and is occasionally busy. If the host's tab is in the background during a match, the match keeps running, but browsers slow background timers, so the host should keep the tab in front.
 
 ## Controls
 
