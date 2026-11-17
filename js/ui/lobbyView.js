@@ -3,14 +3,17 @@
 import { EggcrateDisplay } from './eggcrate.js';
 import { cleanName, normalizeCode, MAX_PLAYERS } from '../net/lobbyManager.js';
 import { GAMES, gameById } from '../arcade/games.js';
+import { GENRE_CHOICES, genreById } from '../games/sampleArena/itunesLoader.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export class LobbyView {
   // colorsFor(seats) -> css colours; summary() -> one line describing the host's settings.
-  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock' }) {
+  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {} }) {
     this.defaultGame = defaultGame;
+    this.genre = genre;
+    this.onGenre = onGenre;
     this.lobby = lobby;
     this.saveName = saveName;
     this.colorsFor = colorsFor;
@@ -24,7 +27,7 @@ export class LobbyView {
     this.el = {
       root: $('#lobby'), scrim: $('#lobby-scrim'), name: $('#lobby-name'), code: $('#lobby-code'),
       menu: $('#lobby-menu'), room: $('#lobby-room'), players: $('#lobby-players'), fill: $('#lobby-fill'), fillWrap: $('#lobby-fill-wrap'),
-      summary: $('#lobby-summary'), games: $('#lobby-games'), status: $('#lobby-status'), start: $('#lobby-start'), startLabel: $('#lobby-start .b-label'),
+      summary: $('#lobby-summary'), games: $('#lobby-games'), crates: $('#lobby-crates'), status: $('#lobby-status'), start: $('#lobby-start'), startLabel: $('#lobby-start .b-label'),
       create: $('#lobby-create'), join: $('#lobby-join'), copy: $('#lobby-copy'), leave: $('#lobby-leave'), close: $('#lobby-close'),
     };
     this.codeLamp = new EggcrateDisplay($('#ec-room'), { cols: 6, cell: 7, align: 'left', label: 'Room code' });
@@ -44,6 +47,11 @@ export class LobbyView {
       if (!b) return;
       if (this.lobby.isHost) { this.lobby.setGame(b.dataset.game); this.lobby.vote(b.dataset.game); }
       else this.lobby.vote(b.dataset.game);
+    });
+    // Soundclash: the host picks the crate.
+    this.el.crates.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-genre]');
+      if (b && this.lobby.isHost) this.onGenre(b.dataset.genre);
     });
     this.el.copy.addEventListener('click', () => this._copy());
     this.el.leave.addEventListener('click', () => { this.lobby.leave(); this.status(''); });
@@ -179,6 +187,9 @@ export class LobbyView {
         ${on ? '<span class="lg-on">NEXT UP</span>' : ''}</button>`;
     }).join('');
     this.el.games.dataset.host = host ? '1' : '0';
+    const crate = genreById(state.genre || (host ? this.genre() : 'all')).id;
+    this.el.crates.hidden = state.game !== 'soundclash';
+    this.el.crates.innerHTML = state.game !== 'soundclash' ? '' : `<p class="lbl">SOUNDCLASH CRATE${host ? '' : ' · THE HOST PICKS'}</p>${GENRE_CHOICES.map((g) => `<button type="button" class="sc-crate" data-genre="${g.id}" aria-pressed="${g.id === crate}" ${host && !state.inMatch ? '' : 'disabled'}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}`;
     const seats = host ? this.lobby.seats() : [
       ...state.players.filter((p) => !p.away).map((p) => ({ name: p.name, kind: 'human', pid: p.pid })),
     ];

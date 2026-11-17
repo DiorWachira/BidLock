@@ -271,7 +271,7 @@ export class LobbyManager {
   }
 
   _blank() {
-    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {} };
+    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null };
   }
 
   get isHost() { return this.state.role === 'host'; }
@@ -367,8 +367,8 @@ export class LobbyManager {
 
   _sendLobby() {
     if (!this.isHost) return;
-    const { code, players, fillBots, inMatch, game, votes } = this.state;
-    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, you: pid });
+    const { code, players, fillBots, inMatch, game, votes, genre } = this.state;
+    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, genre, you: pid });
   }
 
   setFillBots(on) {
@@ -381,6 +381,13 @@ export class LobbyManager {
   setGame(id) {
     if (!this.isHost || this.state.inMatch || !GAMES.some((g) => g.id === id)) return;
     this._set({ game: id });
+    this._sendLobby();
+  }
+
+  // Host: Soundclash's crate of music for the room.
+  setGenre(id) {
+    if (!this.isHost || this.state.inMatch || typeof id !== 'string' || id.length > 24) return;
+    this._set({ genre: id });
     this._sendLobby();
   }
 
@@ -492,7 +499,7 @@ export class LobbyManager {
       return;
     }
     if (msg.t === WIRE.LOBBY) {
-      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {} });
+      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null });
       if (this._joinWait) this._joinWait.resolve();
       return;
     }

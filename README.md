@@ -8,7 +8,7 @@ BidLock is a browser auction game. Everyone gets the same $20 and has to draft a
 
 Every lot is shown with a real photograph, in a glass-and-gold frame on a 3D auction pedestal. Two sealed mystery crates turn up mid-show, an Oracle may hand someone a hard general-knowledge question for a half-price steal, and before the scores are opened there is a vault and a ten-second heist.
 
-The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, and a room can move between all three without re-entering the code.
+The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, and a music game, **Soundclash**, that warps three seconds of a real song and asks you to name it. A room can move between all four without re-entering the code.
 
 It is a static site: plain HTML, CSS and ES modules. There is no build step, no server of ours, and no API key.
 
@@ -22,7 +22,7 @@ It is a static site: plain HTML, CSS and ES modules. There is no build step, no 
 | --- | --- | --- |
 | ![Multiplayer lobby](screenshots/lobby.png) | ![A table of six](screenshots/room-six.png) | ![Heist board](screenshots/heist.png) |
 
-## Three shows on Channel 20
+## Four shows on Channel 20
 
 Pick a show on the title screen, or in the lobby when you host a room. After a game, the host takes the room back to the lobby, everyone can vote on what to play next, and the next game starts without anyone re-entering the code.
 
@@ -31,8 +31,9 @@ Pick a show on the title screen, or in the lobby when you host a room. After a g
 | **BidLock** | The $20 draft auction described below | 1 to 6 people, bots fill to 4 |
 | **Trapdoor Royale** | Trivia elimination on a floating arena | 1 to 6 people, bots fill to 12 |
 | **Last Lamp** | Trivia survival in a lighthouse in a storm | 1 to 6 people, bots fill to 6 |
+| **Soundclash** | Name that tune from a warped three-second loop, with sabotage | 1 to 6 people, bots fill to 6 |
 
-All three share the room-code lobby, the sound engine and the trivia question engine.
+All four share the room-code lobby and the sound engine; the three quiz games share the trivia question engine.
 
 **Questions.** There are 310 built-in questions (`js/arcade/questionBank.js` plus the original 50), tagged easy, medium or hard, in four styles: straight questions, odd one out, which came first, and finish the saying. When the Open Trivia DB is reachable the quiz games also fetch 50 of its questions per match, across every category and difficulty, using a session token so the service does not send the same question twice. Each device remembers the last 900 questions it asked and holds them back until the rest have been used: playing offline and alternating the two games, the first repeat comes in match 22. Both games start easy and get harder as the match goes on. BidLock's Oracle draws from the 113 hardest general-knowledge questions.
 
@@ -93,9 +94,69 @@ A keeper with no flames becomes a **wraith**: see-through and still answering. E
 
 When two keepers or fewer are left, or after seven questions, the storm breaks the lower door and it ends on **the climb**. Each sprint shows three statements, getting harder as you climb ("Who wrote Things Fall Apart? → Wole Soyinka"); mark each true or false, and every right mark is a step up. Keepers start a step higher for every spare flame. Wraiths drift up two extra steps a sprint, and a wraith that reaches a keeper's step takes their lantern: the keeper becomes the wraith and slips back two steps. The water rises a step each sprint (two from the third), and a keeper it reaches is snuffed. The first keeper into the lamp room, step 12, lights the lamp and wins. In simulations about one match in seven is won by someone who had already become a wraith.
 
+### Soundclash: the 3-second sample arena
+
+![Soundclash](screenshots/soundclash-reveal.png)
+
+| A rival's dubplate lands | The shockwave | The podium |
+| --- | --- | --- |
+| ![Underwater](screenshots/soundclash-underwater.png) | ![Shockwave](screenshots/soundclash-shockwave.png) | ![Podium](screenshots/soundclash-podium.png) |
+
+A sound clash is a battle between sound systems, a tradition that started in Jamaica in the 1950s. Here every player is a "sound" with their own speaker stack. Each of eight rounds loops a three-second hook from a real song, warped, and offers four titles from the same crate of music:
+
+| Warp | What you hear |
+| --- | --- |
+| Nightcore | 1.35x, speed and pitch up |
+| Chopped & screwed | 0.72x, slowed and pitched down |
+| Underwater sub | a 320 Hz low-pass with heavy resonance |
+| Reverse spin | the three seconds played backwards |
+| Clean cut | the last round, the "dubplate special": unwarped, double points, and a wrong answer costs 250 |
+
+Name it with a click or 1 to 4. A right answer is worth 1,000 points at the drop, falling to 500 by eight seconds. Then the warp lifts for four seconds of overtime, worth 350 falling to 150. Right answers in a row multiply: ×1.2, ×1.5, then ×2.
+
+Points are also ammunition. Once a round you can throw a dubplate at a rival, or at whoever leads:
+
+| Sabotage | Cost | What it does |
+| --- | --- | --- |
+| Underwater muffle | 300 | Clamps their audio to 240 Hz for four seconds and ripples their screen blue |
+| Vinyl scratch & scramble | 450 | A scratch and a pitch drop in their ears, and their answer buttons (and keys) shuffle for three seconds |
+| Reverse / chipmunk shockwave | 600 | Their loop flips to reverse or 1.5x chipmunk, their answer card turns upside down, and their streak is broken |
+
+The house sounds answer faster for popular songs and worse under heavy warps. Occasionally one throws a dubplate at a person in the lead. In simulations against five bots, a player who knows 50% of songs wins about 23% of matches and one who knows 90% wins about 77%. Thrown at a leader on a streak, a sabotage is worth its price; thrown every round, it costs you the match.
+
+**Crates.** Pick the music on the title screen, or as host in the lobby: Global Pop & Chart Toppers; Hip-Hop, Rap & Trap; UK Grime, Drill & Afrobeats; 2000s & 2010s Throwback Anthems; Rock, Indie & Alt Classics; Anime, Gaming & Meme Bangers; or the All-Genre Shuffle. A match makes three to four calls to the free [iTunes Search API](https://performance-partners.apple.com/search-api) (no key), keeps songs with a 30-second preview, drops covers, karaoke and live takes, and builds eight rounds whose wrong answers come from the same searches.
+
+**Audio that never goes silent.** `sampleAudioFX.js` has three tiers:
+
+1. **Web Audio buffer.** The preview is fetched and decoded, and the three-second window becomes a loop with a 20 ms equal-power crossfade baked into the seam, so it never clicks. It runs through `BiquadFilter → WaveShaper → Analyser (fftSize 128, 64 bins)`. This tier gives true reverse, pitch warps, filters and a live spectrum.
+2. **HTML5 audio.** If the preview cannot be fetched (CORS, a flaky network), the same URL streams through an `<audio>` element, with `playbackRate` and `preservesPitch = false` for the warps. Reverse becomes a slowed "radio" take, filters become a muffled level plus synthesised noise, and the spectrum ring follows a beat-synced envelope.
+3. **Offline synth.** With no iTunes at all, the match uses 24 public-domain tunes (Beethoven, Grieg, Joplin, Rossini, folk songs) rendered by a small chiptune band into a buffer. They then go through tier 1's whole graph.
+
+The source chip on screen says which tier is playing. The previews are Apple's, provided to promote the store: the reveal shows the album artwork and links each song to Apple Music, and the screen credits the previews to iTunes.
+
+**Design: "the clash."** The club is built from the sound-system tradition and the DJ's own equipment:
+
+| Reference | Became |
+| --- | --- |
+| Jamaican sound clashes, from Tom the Great Sebastian vs Count Nick in 1952 | The format: every player is a "sound"; a reveal is a judgement by the crowd (cheer or groan) |
+| Dubplates, the one-off acetates cut for a sound and used as weapons in a clash | Sabotage: a dubplate in your colour arcs across the room and hits a rival's stack; the clean last round is the "dubplate special" |
+| Speaker stacks with hand-painted names, as at Notting Hill Carnival | Each player's booth: two columns of cabinets with the sound's name painted on the top box |
+| The "pull up" airhorn, when the crowd demands a rewind | Three right in a row sounds the horn: "PULL UP!" |
+| The Technics SL-1200: strobe dots on the platter edge, the pitch fader, the strobe lamp | The centre turntable. The dots stand still at true speed and creep when the warp changes the pitch, the fader rides up or down with the warp, and the platter runs backwards in reverse |
+| Club laser rigs and graphic-equaliser bars | 64 spectrum pillars around the riser, fed by the analyser, and lasers that fire on the bass |
+
+Colour has one job each: green is the music (spectrum, lasers, the clock), amber is the warp, red is a hit, and every sound keeps its own colour.
+
+Sources:
+- [Sound clash](https://en.wikipedia.org/wiki/Sound_clash) and [Dubplate](https://en.wikipedia.org/wiki/Dubplate), Wikipedia; [A history of soundclash](https://daily.redbullmusicacademy.com/2016/10/a-history-of-soundclash), Red Bull Music Academy Daily
+- [Channel One sound system, Notting Hill Carnival](https://www.londonmuseum.org.uk/collections/v/object-1007399/channel-one-sound-system-notting-hill-carnival/), London Museum
+- [Technics SL-1200](https://en.wikipedia.org/wiki/Technics_SL-1200), Wikipedia; [Features of the SL-1200](https://www.technics.com/global/sl1200/features/), Technics
+- [AudioBufferSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/AudioBufferSourceNode), MDN
+- [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/index.html), Apple
+
 ### How the quiz games fit in
 
-Each quiz game is a pure rules engine (`royaleEngine.js`, `lampEngine.js` with `undertowMinigames.js`) plus a Three.js scene and a screen. They follow the same pattern as BidLock's auction engine: deterministic for a seed, with `serialize()` and `hydrate()` so a guest's browser mirrors the host's match. On the wire they use one envelope each way: the host sends `G` (an event and a snapshot) and `GT` (clock ticks); players send `GI` (an input). Nothing secret leaves the host before it is revealed: not the right answer, not anyone's secret answer, not the loosened plank, not who chose to shove, not which statements are true.
+Each arcade game is a pure rules engine (`royaleEngine.js`, `lampEngine.js` with `undertowMinigames.js`, `sampleArenaEngine.js`) plus a Three.js scene and a screen. They follow the same pattern as BidLock's auction engine: deterministic for a seed, with `serialize()` and `hydrate()` so a guest's browser mirrors the host's match. On the wire they use one envelope each way: the host sends `G` (an event and a snapshot) and `GT` (clock ticks); players send `GI` (an input). Nothing secret leaves the host before it is revealed: not the right answer, not anyone's secret answer, not the loosened plank, not who chose to shove, not which statements are true. In Soundclash the right title and everyone's picks stay on the host until the reveal; guests do get each round's preview URL, because their own speakers have to play it.
 
 In Trapdoor Royale the shared state is which platform each contestant has chosen, not where their feet are. Each browser runs the avatars to their platforms itself, so twelve contestants stay in step without streaming positions.
 
@@ -321,13 +382,15 @@ npm test
 ```
 
 - `tests/arcade.test.mjs` runs in plain Node: 150 simulated matches of each quiz game at tables of 2 to 12, checking that exactly one champion is left, that all seven survival games, six twists and five kinds of weather turn up, that no question repeats across ten matches on one device, that the lamp never goes fully dark, that secrets stay out of snapshots, and that a guest's mirror agrees with the host.
+- `tests/soundclash.test.mjs` runs in plain Node: the crate digger against fake iTunes answers (filtering, artwork, eight fair rounds, the offline fallback), the scoring, 200 bot matches with every invariant, sabotage rules, secrets in snapshots, the synth tunes, and the seamless loop maker.
+- `tests/soundclash.e2e.mjs` drives the browser through the crate picker, all three audio tiers (a served WAV with CORS, the same file refused to `fetch`, and iTunes blocked), every sabotage, overtime, the reveal and the podium, a two-player room with a crate pick, and a 390 px phone.
 - `tests/arcade.e2e.mjs` drives the browser through the channel guide, both quiz games solo, a room that votes, plays Trapdoor Royale, goes back to the lobby and plays Last Lamp, and both games on a 390 px phone.
 - `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
 - `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.
 
 `playwright-core` is the only dependency and is only needed for the browser tests.
 
-Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation.
+Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation, `?music=offline` plays Soundclash from the offline synth crate.
 
 ## Deploy
 
@@ -344,10 +407,10 @@ The empty `.nojekyll` file tells Pages to serve the files as they are.
 
 ## Notes
 
-- **What is fetched from the network:** Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, and trivia questions from the Open Trivia DB. The last two have built-in fallbacks. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
+- **What is fetched from the network:** Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, and Soundclash's songs, previews and artwork from Apple's iTunes Search API. All three have built-in fallbacks. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
 - **Slow graphics.** If frames run slow the stage lowers its resolution and turns shadows off by itself.
 - **Sound starts on your first click or key press**, because browsers do not allow audio before that.
 
 ## Credits
 
-The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable.
+The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable. Soundclash's song previews and artwork are provided by Apple through the iTunes Search API and link back to Apple Music; the offline tunes are public-domain compositions, arranged for the house synth.

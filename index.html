@@ -87,6 +87,11 @@
           </div>
           </div>
 
+          <fieldset id="soundclash-opts" class="sc-crates" hidden>
+            <legend>Crate · the music Soundclash plays</legend>
+            <div id="sc-crate-list" class="sc-crate-list" role="radiogroup" aria-label="Music crate"></div>
+          </fieldset>
+
           <div class="title-actions">
             <button id="btn-start" class="btn btn-live" type="button"><span class="b-label">SOLO VS BOTS</span><kbd>Enter</kbd></button>
             <button id="btn-friends" class="btn" type="button"><span class="b-label">PLAY WITH FRIENDS</span><kbd>2-6</kbd></button>
@@ -252,11 +257,12 @@
         </div>
         <h3 class="lbl">TONIGHT'S GAME</h3>
         <div id="lobby-games" class="lobby-games" role="group" aria-label="Choose the game"></div>
+        <div id="lobby-crates" class="sc-crate-list sc-lobby-crates" role="group" aria-label="Soundclash music crate" hidden></div>
         <h3 class="lbl">AT THE TABLE</h3>
         <ol id="lobby-players" class="lobby-players"></ol>
         <label class="check" id="lobby-fill-wrap">
           <input type="checkbox" id="lobby-fill" checked>
-          <span><b>Fill empty seats with AI bots</b> Bots take the free seats: up to 4 in BidLock, 12 in Trapdoor Royale, 6 in Last Lamp.</span>
+          <span><b>Fill empty seats with AI bots</b> Bots take the free seats: up to 4 in BidLock, 12 in Trapdoor Royale, 6 in Last Lamp and Soundclash.</span>
         </label>
         <p id="lobby-summary" class="lobby-summary"></p>
         <div class="lobby-actions">
