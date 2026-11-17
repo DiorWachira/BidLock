@@ -74,7 +74,7 @@ try {
   {
     const ctx = await context(browser);
     const { page: p, errors } = await page(ctx, Q);
-    ok('the title lists three shows', (await p.locator('#channels .channel').count()) === 3);
+    ok('the title lists four shows', (await p.locator('#channels .channel').count()) === 4);
     ok('BidLock is picked by default', (await p.locator('.channel[aria-checked="true"]').getAttribute('data-game')) === 'bidlock' && await p.locator('#bidlock-opts').isVisible());
     await p.locator('.channel[data-game="royale"]').click();
     ok('picking Trapdoor Royale shows its rules and hides the bankroll', (await p.locator('#title-how li').count()) === 5 && !(await p.locator('#bidlock-opts').isVisible()) && !(await p.locator('#hero').isVisible()));
@@ -87,7 +87,7 @@ try {
     await p.reload();
     await p.waitForFunction(() => window.__bidlock && window.__bidlock.screen === 'title');
     ok('the chosen show is remembered', (await p.locator('.channel[aria-checked="true"]').getAttribute('data-game')) === 'lamp');
-    ok('the run sheet lists the other shows', (await p.locator('#drawer-games div').count()) === 2);
+    ok('the run sheet lists the other shows', (await p.locator('#drawer-games div').count()) === 3);
     ok('no console errors on the title', errors.length === 0, errors.join(' | '));
     await ctx.close();
   }

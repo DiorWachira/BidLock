@@ -23,6 +23,19 @@ A fourth game: name the song from a warped three-second loop of a real iTunes pr
 - Sabotages cost points: Underwater 300, Scratch 450, Reverse/Chipmunk 600.
 - The audio has three tiers: a decoded Web Audio buffer, then HTML5 audio with a synth overlay, then offline synth tunes (public-domain melodies only).
 
+### Done (on the branch, not merged)
+
+- [x] Loader, offline synth crate (24 public-domain tunes), the three-tier audio, the rules engine, the 3D club and the screen
+- [x] Wired into the title channel guide (with a crate picker), the lobby (the host picks the crate; guests see it), the shell and the help drawer
+- [x] Balance from simulations against five bots: knowing 50% of songs wins about 23% of matches, knowing 90% wins about 77%. Sabotage pays when aimed at a leader on a streak and loses the match when spammed. Bots hit a leading person about once a match.
+- [x] Tests: `tests/soundclash.test.mjs` (rules) and `tests/soundclash.e2e.mjs` (68 browser checks, including all three audio tiers), plus a fix for a start-up bug where a stored arcade game booted with a BidLock lot on the pedestal
+- [x] README section and screenshots
+
+### Left
+
+- Merge when the owner says so (merging deploys).
+- Not verified: listening to it. The tests prove the audio graph runs (tier, rate, filters, a non-zero spectrum), not that it sounds good. The live iTunes path was played once on this machine (tier 1, all 8 previews decoded, no errors).
+
 ### Decisions
 
 - **Concept: a sound clash.** It is drawn from the Jamaican sound-system tradition: each player is a "sound" with a speaker stack, the centre is a Technics-style turntable, and thrown dubplates are the sabotages. It is an original game in the name-that-tune genre, not a copy of SongPop, Heardle or Red Bull Culture Clash.

@@ -21,6 +21,7 @@ import { MediaLoader } from './utils/mediaLoader.js';
 import { LobbyManager, WIRE, wireType, packEvent, unpackEvent, EMOTES } from './net/lobbyManager.js';
 import { GAMES, gameById } from './arcade/games.js';
 import { botSeats } from './arcade/bots.js';
+import { GENRE_CHOICES, genreById } from './games/sampleArena/itunesLoader.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 
@@ -46,6 +47,7 @@ const debug = {
   triviaLocal: params.get('trivia') === 'local',
   mediaOff: params.get('media') === 'off',
   netLocal: params.get('net') === 'local',
+  musicOffline: params.get('music') === 'offline',
 };
 
 const settings = {
@@ -53,6 +55,7 @@ const settings = {
   allIn: !!store.get('allIn', false),
   marathon: !!store.get('marathon', false),
   game: gameById(store.get('game', 'bidlock')).id,
+  genre: genreById(store.get('genre', 'all')).id,
   volume: Math.max(0, Math.min(1, Number(store.get('volume', 0.7)) || 0)),
   muted: !!store.get('muted', false),
   theme: store.get('theme', 'dark') === 'light' ? 'light' : 'dark',
@@ -213,6 +216,7 @@ function applyModes() {
 
 function modeSummary() {
   const g = gameById(lobby.state.game);
+  if (g.id === 'soundclash') return `${g.name}: crate ${genreById(lobby.state.genre || settings.genre).name}. With bots on, the table fills to ${g.fillTo}.`;
   if (g.id !== 'bidlock') return `${g.name}: ${g.kind.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   return `$${settings.budget} bankroll · ${settings.marathon ? 'Marathon, 8 rounds' : '6 rounds'}${settings.allIn ? ' · All-In for every player' : ''}. Change these on the title screen.`;
 }
@@ -304,6 +308,8 @@ function heroAttract(dt) {
 const lobby = new LobbyManager({
   transport: debug.netLocal ? 'local' : 'peer',
   onState: (state) => {
+    // A new room starts with this device's Soundclash crate.
+    if (state.role === 'host' && state.status === 'open' && !state.genre) { lobby.setGenre(settings.genre); return; }
     if (lobbyView) lobbyView.render(state);
     const chip = $('#roomchip');
     const open = state.status === 'open' && state.role != null;
@@ -456,13 +462,17 @@ const shell = {
   toast: (t) => hud.toast(t),
   again: () => arcadeAgain(),
   exit: () => arcadeExit(),
+  // Soundclash's crate: the room's in a room, this device's otherwise.
+  genre: () => (role === 'host' && lobby.state.genre ? lobby.state.genre : settings.genre),
 };
 
 async function loadGame(id) {
   if (!gameModules[id]) {
     gameModules[id] = id === 'royale'
       ? import('./games/trapdoorRoyale/royaleGame.js').then((m) => m.RoyaleGame)
-      : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
+      : id === 'soundclash'
+        ? import('./games/sampleArena/sampleArenaGame.js').then((m) => m.SampleArenaGame)
+        : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
   }
   return gameModules[id];
 }
@@ -566,6 +576,40 @@ function buildChannels() {
   if (drawerGames) drawerGames.innerHTML = GAMES.filter((g) => g.id !== 'bidlock').map((g) => `<div><dt>${esc(g.name)}</dt><dd>${esc(g.tagline)} ${g.how.map(esc).join(' ')}</dd></div>`).join('');
 }
 
+function buildCrates() {
+  const wrap = $('#sc-crate-list');
+  if (!wrap) return;
+  wrap.innerHTML = GENRE_CHOICES.map((g) => `<button type="button" class="sc-crate" role="radio" data-genre="${g.id}" aria-checked="${g.id === settings.genre}" tabindex="${g.id === settings.genre ? 0 : -1}"><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('');
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.sc-crate');
+    if (!b) return;
+    audio.unlock();
+    audio.blip();
+    selectGenre(b.dataset.genre);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    const ids = GENRE_CHOICES.map((g) => g.id);
+    const i = ids.indexOf(settings.genre);
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+    selectGenre(ids[(i + d + ids.length) % ids.length]);
+    wrap.querySelector(`[data-genre="${settings.genre}"]`).focus();
+  });
+}
+
+function selectGenre(id) {
+  settings.genre = genreById(id).id;
+  store.set('genre', settings.genre);
+  for (const b of document.querySelectorAll('#sc-crate-list .sc-crate')) {
+    const on = b.dataset.genre === settings.genre;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  if (lobby.isHost) lobby.setGenre(settings.genre);
+  if (lobbyView) lobbyView.render(lobby.state);
+}
+
 function selectGame(id) {
   const g = gameById(id);
   settings.game = g.id;
@@ -577,6 +621,7 @@ function selectGame(id) {
     b.tabIndex = on ? 0 : -1;
   }
   $('#bidlock-opts').hidden = g.id !== 'bidlock';
+  $('#soundclash-opts').hidden = g.id !== 'soundclash';
   $('#hero').hidden = g.id !== 'bidlock';
   $('#strap-text').innerHTML = g.id === 'bidlock' ? `The $<span id="strap-budget">${settings.budget}</span> Draft` : esc(g.strap);
   $('#title-tagline').textContent = g.tagline;
@@ -1084,7 +1129,7 @@ function wireInput(guide, drawer) {
       return;
     }
     if (screen === 'arcade') {
-      if (arcade && !e.repeat && (!onControl || /^[1-6eEwasdWASD]$|^Arrow/.test(k)) && arcade.key(e)) e.preventDefault();
+      if (arcade && !e.repeat && (!onControl || /^[1-6eEwasdWASDzxcZXCtT]$|^Arrow/.test(k)) && arcade.key(e)) e.preventDefault();
       return;
     }
     if (screen === 'game') {
@@ -1294,12 +1339,15 @@ async function boot() {
     onTour: (mode) => guide.start(mode),
   });
   buildChannels();
+  buildCrates();
   lobbyView = new LobbyView({
     lobby,
     loadName: () => store.get('name', ''),
     saveName: (n) => store.set('name', String(n).slice(0, 14)),
     colorsFor: (seats) => (lobby.state.game === 'bidlock' ? colorsFor(seats) : arcadeColors(seats)),
     defaultGame: () => settings.game,
+    genre: () => settings.genre,
+    onGenre: (id) => { audio.blip(); selectGenre(id); },
     summary: modeSummary,
     onStart: startRoom,
     onOpen: () => {},
@@ -1334,10 +1382,11 @@ async function boot() {
   S.setContenders(defaultUnits(), 0);
   applyTheme();
   applyModes();
-  selectGame(settings.game);
   setScreen('title');
   setCam('title');
   showHero(0);
+  // After the hero, so a stored arcade game boots with its own (empty) pedestal.
+  selectGame(settings.game);
   hero.touched = -99;
   // One request fetches the photograph for the first lot of every category.
   media.prefetch(CATEGORIES.map((c) => c.items[0]));

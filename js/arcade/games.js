@@ -58,6 +58,24 @@ export const GAMES = Object.freeze([
       'It ends on a true-or-false sprint up the stairs. Wraiths drift up faster, and a wraith that catches a keeper takes their lantern.',
     ],
   },
+  {
+    id: 'soundclash',
+    name: 'Soundclash',
+    marquee: 'SNDCLASH', // eight lamps on the sign: a callsign
+    slot: '22:00',
+    strap: 'The 3-Second Sample Arena',
+    kind: 'Name that tune',
+    tagline: 'Every player is a sound system. Three seconds of a real song, warped. Name it first, then spend your points throwing dubplates at the leader.',
+    people: '1 to 6 players, 6 sounds',
+    minSeats: 2,
+    fillTo: 6,
+    how: [
+      'Each of eight rounds loops a three-second hook from a real song, warped: nightcore, chopped and screwed, underwater, or reversed. Pick the title from four with a click or 1 to 4.',
+      'Faster is richer: 1,000 points at the drop, 500 by eight seconds. Then the warp lifts for four seconds of overtime, worth 350 to 150. Right answers in a row multiply: ×1.2, ×1.5, ×2.',
+      'Points are ammunition. Once a round, throw a dubplate at a rival or the leader: Underwater (300) muffles their sound, Scratch (450) scrambles their buttons, Shockwave (600) flips their loop and their card. Z, X and C, and T to change target.',
+      'The last round is the dubplate special: clean audio, double points, and a wrong answer costs 250. Pick a crate of music on the title screen or in the lobby.',
+    ],
+  },
 ]);
 
 export function gameById(id) {
