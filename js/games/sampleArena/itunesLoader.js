@@ -9,6 +9,7 @@
 
 import { SYNTH_TUNES } from './synthTunes.js';
 import { HITS } from './hits.js';
+import { ANIME_SONGS } from './animeSongs.js';
 
 export const ITUNES_SEARCH = 'https://itunes.apple.com/search';
 export const ROUND_COUNT = 8;
@@ -39,12 +40,12 @@ export const GENRES = Object.freeze([
     terms: ['Arctic Monkeys', 'The Killers', 'Foo Fighters', 'Red Hot Chili Peppers', 'Linkin Park', 'Nirvana', 'Coldplay', 'Imagine Dragons', 'The Strokes', 'Muse', 'Paramore', 'Green Day', 'Oasis', 'Tame Impala', 'Radiohead'],
   },
   {
-    id: 'anime', name: 'Anime, Gaming & Meme Bangers', short: 'ANIME · GAMES · MEMES',
-    // Mostly the artists behind the best-known anime openings, then games and memes.
-    terms: ['YOASOBI', 'Kenshi Yonezu', 'Ado', 'Linked Horizon', 'Aimer', 'Creepy Nuts', 'Mrs. GREEN APPLE', 'Official HIGE DANdism', 'King Gnu', 'TK from Ling tosite sigure', 'Ikimonogakari', 'KANA-BOON', 'Yoko Takahashi', 'Spyair', 'Vaundy', 'C418', 'Toby Fox', 'Rick Astley', 'Darude', 'Smash Mouth', 'Eiffel 65', 'Gotye', 'Vengaboys', 'Crazy Frog'],
-    // The side dish: game and meme artists. At most one of a match's three searches,
-    // a quarter of the time, and at most SIDE_ROUNDS of its rounds.
-    side: ['C418', 'Toby Fox', 'Rick Astley', 'Darude', 'Smash Mouth', 'Eiffel 65', 'Gotye', 'Vengaboys', 'Crazy Frog'],
+    // Not artists but songs: a curated catalogue of anime openings and endings that
+    // people know and love (animeSongs.js), each searched for by name and shown with its
+    // anime in brackets: "Gurenge (Demon Slayer)".
+    id: 'anime', name: 'Anime Openings & Endings', short: 'ANIME',
+    terms: [],
+    songs: ANIME_SONGS,
   },
 ]);
 export const SHUFFLE = Object.freeze({ id: 'all', name: 'All-Genre Shuffle', short: 'SHUFFLE' });
@@ -169,6 +170,75 @@ export function parseResults(data, { term = '', loose = false, hits = null } = {
   return out;
 }
 
+// The track for a named song in a search's results, or null: the right artist, the
+// right title, and a preview.
+export function findSong(data, song) {
+  if (!data || !Array.isArray(data.results)) return null;
+  const fold = (x) => String(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const who = fold(song.match || song.artist);
+  for (const r of data.results) {
+    if (!r || r.kind !== 'song' || !r.previewUrl || !r.artworkUrl100) continue;
+    if (!fold(r.artistName).includes(who)) continue;
+    if (!isHit(r.trackName, [song.title, ...(song.alts || [])])) continue;
+    // The original: not an instrumental, remix, cover or live take.
+    if (JUNK.test(r.trackName)) continue;
+    return songTrack(song, { url: r.previewUrl, art: String(r.artworkUrl100).replace('100x100bb', '400x400bb'), link: r.trackViewUrl || r.collectionViewUrl || '', id: String(r.trackId || '') });
+  }
+  return null;
+}
+
+// A catalogue song as a track. Its title carries the anime, as the players see it.
+export function songTrack(song, found) {
+  return {
+    id: found.id || `anime:${song.artist}:${song.title}`,
+    title: animeTitle(song),
+    song: song.title,
+    anime: song.anime,
+    artist: song.artist,
+    url: found.url, art: found.art, link: found.link,
+    pop: 0.75, hit: true, synth: null, genre: 'anime',
+  };
+}
+
+export const animeTitle = (song) => `${song.title} (${song.anime})`;
+// The series an anime belongs to: "Jujutsu Kaisen 0" and "Demon Slayer: Mugen Train"
+// count with their shows.
+export const series = (anime) => String(anime).replace(/:.*$/, '').replace(/\s+\d+$/, '').trim().toLowerCase();
+
+// Wrong answers for an anime round come straight from the catalogue (they need no audio).
+// Easy: other anime by other artists. Normal: any other song. Hard: the same anime or
+// the same artist where it can, so a Titan opening is up against other Titan openings.
+export function animeRivals(target, rng, level = 'normal', catalogue = ANIME_SONGS) {
+  const others = shuffled(catalogue.filter((s) => s.title !== target.song), rng);
+  let ranked;
+  const mine = series(target.anime);
+  if (level === 'easy') ranked = [...others.filter((s) => series(s.anime) !== mine && s.artist !== target.artist), ...others];
+  else if (level === 'hard') ranked = [...others.filter((s) => series(s.anime) === mine), ...others.filter((s) => s.artist === target.artist), ...others];
+  else ranked = others;
+  const picks = [];
+  for (const s of ranked) {
+    if (picks.length >= 3) break;
+    if (!picks.includes(s)) picks.push(s);
+  }
+  return picks.map((s) => ({ title: animeTitle(s), artist: s.artist }));
+}
+
+// Found songs are remembered on this device for a fortnight, so a run of matches does
+// not run into Apple's limit of about 20 searches a minute.
+const SONG_CACHE = 'bidlock.sc.songs';
+const SONG_TTL = 14 * 24 * 3600 * 1000;
+function songCache() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(SONG_CACHE) : null;
+    const m = raw ? JSON.parse(raw) : {};
+    return m && typeof m === 'object' ? m : {};
+  } catch { return {}; }
+}
+function saveSongCache(m) {
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(SONG_CACHE, JSON.stringify(m)); } catch { /* storage blocked */ }
+}
+const songKey = (song) => `${song.artist}|${song.title}`;
+
 // The searches for a crate: three artists from it, or one from each of four crates in
 // the shuffle. Fewer calls than Apple's limit of about 20 a minute.
 export const SIDE_CHANCE = 0.25; // how often a crate's third search is a side artist
@@ -176,13 +246,20 @@ export const SIDE_ROUNDS = 2; // the most rounds a side artist may supply
 
 const coreTerms = (g) => g.terms.filter((t) => !(g.side || []).includes(t));
 
+// A search for one named song: "LiSA Gurenge".
+export function songSearch(song) {
+  return { term: `${song.artist} ${song.title}`, genre: 'anime', song, hits: [song.title, ...(song.alts || [])] };
+}
+
 export function planSearches(genreId, rng) {
   const search = (g, term) => ({ term, loose: !!g.loose, genre: g.id, hits: hitsFor(g.id, term), side: (g.side || []).includes(term) });
   if (genreId === 'all') {
-    // The shuffle takes its one artist per crate from the core of each crate.
-    return shuffled(GENRES, rng).slice(0, 4).map((g) => search(g, shuffled(coreTerms(g), rng)[0]));
+    // The shuffle takes one artist per crate (one song from the anime crate).
+    return shuffled(GENRES, rng).slice(0, 4).map((g) => (g.songs ? songSearch(shuffled(g.songs, rng)[0]) : search(g, shuffled(coreTerms(g), rng)[0])));
   }
   const g = GENRES.find((x) => x.id === genreId) || GENRES[0];
+  // Eight songs to ask about, and three spares in case one is missing from the store.
+  if (g.songs) return shuffled(g.songs, rng).slice(0, ROUND_COUNT + 3).map(songSearch);
   if (!g.side) return shuffled(g.terms, rng).slice(0, 3).map((term) => search(g, term));
   // A crate with a side dish leans on its core: two core artists always, and the third
   // is a side artist only a quarter of the time.
@@ -197,7 +274,7 @@ export function hitsFor(genreId, term) {
   return (HITS[genreId] && HITS[genreId][term]) || [];
 }
 
-export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal' } = {}) {
+export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal', songs = false } = {}) {
   const seen = new Set();
   const tracks = [];
   for (const t of pool) {
@@ -208,7 +285,7 @@ export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal' }
     seen.add(k2);
     tracks.push(t);
   }
-  if (tracks.length < count + 3) return null;
+  if (tracks.length < count + (songs ? 0 : 3)) return null;
   const byPop = tracks.slice().sort((a, b) => b.pop - a.pop);
   let targets;
   if (level === 'hard') {
@@ -253,12 +330,14 @@ export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal' }
       if (picks.length >= 3) break;
       if (!picks.includes(x) && !picks.some((p) => key(p.title) === key(x.title))) picks.push(x);
     }
-    const options = shuffled([t, ...picks], rng);
+    // A named anime song's rivals come from the catalogue instead.
+    const rivals = t.anime ? animeRivals(t, rng, level) : picks.map((o) => ({ title: o.title, artist: o.artist }));
+    const options = shuffled([{ title: t.title, artist: t.artist, me: true }, ...rivals], rng);
     return {
       n: n + 1,
       target: t,
       options: options.map((o) => ({ title: o.title, artist: o.artist })),
-      correct: options.indexOf(t),
+      correct: options.findIndex((o) => o.me),
       // The hook usually lands between 8 and 18 seconds into a 30-second preview.
       start: t.synth ? 0 : Math.round((8 + rng() * 10) * 10) / 10,
     };
@@ -278,11 +357,33 @@ export async function loadMatch({ genre = 'all', level = 'normal', rng = Math.ra
   if (!offline) {
     try {
       const plan = planSearches(genre, rng);
+      const cache = songCache();
+      let cacheChanged = false;
       const results = await Promise.all(plan.map(async (s) => {
+        if (s.song) {
+          // A named song: from this device's cache if it is fresh, or one search.
+          const k = songKey(s.song);
+          const c = cache[k];
+          if (c && Date.now() - c.at < SONG_TTL) return [songTrack(s.song, c)];
+          const data = await getJson(`${ITUNES_SEARCH}?term=${encodeURIComponent(s.term)}&media=music&entity=song&limit=15`, { fetchImpl, timeoutMs });
+          const t = findSong(data, s.song);
+          if (t) { cache[k] = { url: t.url, art: t.art, link: t.link, id: t.id, at: Date.now() }; cacheChanged = true; }
+          return t ? [t] : [];
+        }
         const url = `${ITUNES_SEARCH}?term=${encodeURIComponent(s.term)}&media=music&entity=song&limit=${LIMIT}`;
         const data = await getJson(url, { fetchImpl, timeoutMs });
         return parseResults(data, s).map((t) => ({ ...t, genre: s.genre, side: !!s.side }));
       }));
+      if (cacheChanged) saveSongCache(cache);
+      if (plan.every((p) => p.song)) {
+        // The anime crate: eight of the songs found, each against catalogue rivals.
+        const found = results.flat();
+        if (found.length >= ROUND_COUNT) {
+          const rounds = buildRounds(found, rng, ROUND_COUNT, { level, songs: true });
+          if (rounds) return { source: 'itunes', genre, level, rounds, searched: plan.map((p) => p.term), hits: rounds.length };
+        }
+        throw new Error('too few anime songs found');
+      }
       // Interleave the searches so no single artist dominates the pool.
       const pool = [];
       const longest = Math.max(0, ...results.map((r) => r.length));

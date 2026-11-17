@@ -124,7 +124,14 @@ Points are also ammunition. Once a round you can throw a dubplate at a rival, or
 
 The house sounds answer faster for popular songs and worse under heavy warps. Occasionally one throws a dubplate at a person in the lead. In simulations against five bots, a player who knows 50% of songs wins about 23% of matches and one who knows 90% wins about 77%. Thrown at a leader on a streak, a sabotage is worth its price; thrown every round, it costs you the match.
 
-**Crates and difficulty.** Pick the music on the title screen, or as host in the lobby: Global Pop & Chart Toppers; Hip-Hop, Rap & Trap; UK Grime, Drill & Afrobeats; 2000s & 2010s Throwback Anthems; Rock, Indie & Alt Classics; Anime, Gaming & Meme Bangers (mostly the artists behind the best-known anime openings, such as YOASOBI, Kenshi Yonezu, Ado, Linked Horizon, Creepy Nuts and TK's "unravel", with game soundtracks and meme anthems only as a side dish: at most one of a match's three searches, a quarter of the time, and at most two of its eight rounds); or the All-Genre Shuffle. Every artist a crate searches has a curated list of their famous songs (`js/games/sampleArena/hits.js`, checked against what the iTunes Search API actually returns), and the difficulty decides what is asked: **Easy** asks only about those hits, uses only the gentle warps (nightcore, chopped and screwed) and puts every wrong answer by a different artist; **Normal** asks about the hits with every warp; **Hard** asks about everything else they have released. A match makes three to four calls to the free [iTunes Search API](https://performance-partners.apple.com/search-api) (no key), keeps songs with a 30-second preview, drops covers, karaoke and live takes, and draws the wrong answers from the same searches.
+**Crates and difficulty.** Pick the music on the title screen, or as host in the lobby: Global Pop & Chart Toppers; Hip-Hop, Rap & Trap; UK Grime, Drill & Afrobeats; 2000s & 2010s Throwback Anthems; Rock, Indie & Alt Classics; Anime Openings & Endings; or the All-Genre Shuffle.
+
+- **The artist crates.** Every artist a crate searches has a curated list of their famous songs (`js/games/sampleArena/hits.js`, checked against what the iTunes Search API actually returns). **Easy** asks only about those hits, uses only the gentle warps (nightcore, chopped and screwed) and puts every wrong answer by a different artist; **Normal** asks about the hits with every warp; **Hard** asks about everything else they have released. A match makes three to four searches and draws the wrong answers from them.
+- **Anime Openings & Endings.** Not artists but 59 named songs (`js/games/sampleArena/animeSongs.js`): openings, endings and film songs people know and love, from Gurenge and unravel to A Cruel Angel's Thesis, Blue Bird and Idol, each shown with its anime in brackets: "Gurenge (Demon Slayer)". Every song was checked on the store, by its artist, in its original version. A match searches for eleven of them (eight and three spares); the songs found are remembered on the device for a fortnight, so a run of matches stays under Apple's limit of about 20 searches a minute. The wrong answers come from the catalogue: on **Easy** from other anime by other artists, on **Hard** from the same anime where it can (three other Attack on Titan openings).
+
+Store listings drift, so `node tools/check-songs.mjs` re-checks the anime catalogue and every artist's hit list against the live store and prints what to fix (about eight minutes, paced for Apple's limit).
+
+Every match uses the free [iTunes Search API](https://performance-partners.apple.com/search-api) (no key), keeps songs with a 30-second preview, and drops covers, karaoke, remixes, instrumentals and live takes.
 
 **Audio that never goes silent.** `sampleAudioFX.js` has three tiers:
 
@@ -352,7 +359,7 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/ui/hud.js` | All in-match DOM painting, chyrons, boards, scorecard text |
 | `js/ui/lobbyView.js` | The lobby dialog |
 | `js/ui/guide.js` | First-run guide and help drawer |
-| `js/arcade/games.js` | The three shows: names, rules text, table sizes |
+| `js/arcade/games.js` | The four shows: names, rules text, table sizes |
 | `js/arcade/bots.js` | The twelve quiz-game bots and how they answer |
 | `js/arcade/quizBank.js` | Questions, true-or-false trios and quick sums for the quiz games |
 | `js/arcade/gameBase.js` | What the quiz games share: stepping or mirroring the engine, the room, results |

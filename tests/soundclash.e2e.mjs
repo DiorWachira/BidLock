@@ -8,6 +8,7 @@ import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { createServer } from '../tools/serve.mjs';
+import { ANIME_SONGS } from '../js/games/sampleArena/animeSongs.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = path.join(ROOT, 'screenshots');
@@ -58,8 +59,17 @@ function png(w, h, [r, g, b]) {
 }
 const ART = png(64, 64, [200, 60, 40]);
 
-// An iTunes search answer: 20 songs for whatever artist was searched.
+// An iTunes search answer: 20 songs for whatever artist was searched, or, for a named
+// anime song ("LiSA Gurenge"), that song.
 function search(term) {
+  const song = ANIME_SONGS.find((x) => `${x.artist} ${x.title}` === term);
+  if (song) {
+    return { resultCount: 1, results: [{
+      kind: 'song', trackId: `anime-${song.title}`, trackName: song.title, artistName: song.artist,
+      previewUrl: `https://audio-ssl.itunes.apple.com/test/anime/${encodeURIComponent(song.title)}.m4a`,
+      artworkUrl100: `https://is1-ssl.mzstatic.com/test/anime/${encodeURIComponent(song.title)}/100x100bb.jpg`, trackViewUrl: 'https://music.apple.com/test/anime',
+    }] };
+  }
   const results = [];
   for (let i = 0; i < 20; i++) {
     results.push({
@@ -270,6 +280,37 @@ try {
     ok('the reveal shows the album artwork', (await p.locator('#sc-reveal img.sc-sleeve').getAttribute('src')).includes('400x400bb'));
     ok('the reveal links to the store', (await p.locator('#sc-reveal a.sc-store').getAttribute('href')).startsWith('https://music.apple.com/'));
     ok('no console errors (tier 1)', errors.length === 0, errors.join(' | '));
+    await ctx.close();
+  }
+
+  // ---------- 2b. Anime Openings & Endings: named songs, with the anime in brackets
+  {
+    const ctx = await context(browser, { itunes: 'cors' });
+    const { page: p, errors } = await page(ctx, `${Q}&seed=12`);
+    await p.locator('.channel[data-game="soundclash"]').click();
+    ok('the anime crate is called Anime Openings & Endings', (await p.locator('.sc-crate[data-genre="anime"] b').textContent()) === 'Anime Openings & Endings');
+    await p.locator('.sc-crate[data-genre="anime"]').click();
+    await p.locator('.sc-level[data-level="hard"]').click();
+    await p.locator('#btn-start').click();
+    await waitPhase(p, 'PLAY');
+    ok('eleven named songs are searched', ctx.searches.length === 11 && ctx.searches.every((t) => ANIME_SONGS.some((x) => `${x.artist} ${x.title}` === t)), ctx.searches.join(', '));
+    const titles = await p.locator('.sc-ans .sc-t').allTextContents();
+    ok('every answer names its anime in brackets', titles.length === 4 && titles.every((t) => /\(.+\)$/.test(t)), titles.join(' | '));
+    const target = await p.evaluate(() => window.__bidlock.arcade.match.rounds[0].target);
+    const base = (a) => String(a).replace(/:.*$/, '').replace(/\s+\d+$/, '').trim().toLowerCase();
+    const sameAnime = titles.filter((t) => base(/\(([^()]+)\)$/.exec(t)[1]) === base(target.anime)).length;
+    const pool = ANIME_SONGS.filter((x) => base(x.anime) === base(target.anime)).length;
+    ok('hard: the rivals come from the same anime where they can', sameAnime === Math.min(4, pool), `${target.anime}: ${sameAnime} of ${titles.length}, ${pool} in the catalogue`);
+    await p.keyboard.press('1');
+    await waitPhase(p, 'REVEAL', 25000);
+    await p.waitForSelector('#sc-reveal:not([hidden]) h2');
+    ok('the reveal shows the song and its anime', /\(.+\)$/.test(await p.locator('#sc-reveal h2').textContent()));
+    // Songs found are kept for the next match on this device.
+    await p.evaluate(() => window.__bidlock.arcade.shell.exit());
+    await p.waitForFunction(() => window.__bidlock.screen === 'title');
+    const cached = await p.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('bidlock.sc.songs') || '{}')).length);
+    ok('found songs are remembered on the device', cached >= 8, String(cached));
+    ok('no console errors (anime crate)', errors.length === 0, errors.join(' | '));
     await ctx.close();
   }
 

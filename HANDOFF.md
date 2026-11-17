@@ -1,75 +1,58 @@
 # Handoff
 
-Where the work stands, for picking it up after a break. Update this whenever a step finishes.
+The project's final state (2026-11-17), for anyone who picks it up later.
 
-## Live now
+## Live
 
-https://diorwachira.github.io/BidLock/ (GitHub Pages, deployed from `main`).
+https://diorwachira.github.io/BidLock/, served by GitHub Pages from `main`. Merging to `main` deploys.
 
-| Game | Folder | What it is | Shipped in |
-| --- | --- | --- | --- |
-| BidLock | `js/engine`, `js/render`, `js/ui`, `js/main.js` | The $20 draft auction: photos of real lots, Oracle trivia steal, vault, heist, Marathon mode. | #2 |
-| Trapdoor Royale | `js/games/trapdoorRoyale/` | Trivia elimination for up to 12: four answer platforms, the wrong ones drop. Six twists (blackout, shuffle, crumble, reprieve, double up, last gasp). | #4, #6, #8 |
-| Last Lamp | `js/games/lastLamp/` | Trivia survival in a storm-bound lighthouse: three flames each, seven Undertow survival games, five kinds of weather, wraiths, a final climb. | #4, #6, #8 |
+| Show | Folder | What it is |
+| --- | --- | --- |
+| BidLock | `js/engine`, `js/render`, `js/ui`, `js/main.js` | The $20 draft auction: 140 real lots with photos, mystery crates, the Oracle trivia steal, vault, heist, verdict, Marathon mode. |
+| Trapdoor Royale | `js/games/trapdoorRoyale/` | Trivia elimination for up to 12: four answer platforms, the wrong ones drop. Six twists. 16 s a question (10 in speed rounds). |
+| Last Lamp | `js/games/lastLamp/` | Trivia survival in a lighthouse: three flames each, seven Undertow survival games, five kinds of weather, wraiths, a final climb. 20 s a question. |
+| Soundclash | `js/games/sampleArena/` | Name that tune from a warped three-second loop of a real iTunes preview, with point-funded sabotage. Seven crates (including Anime Openings & Endings), three difficulties, answers can be changed. |
 
-Shared: one room-code lobby (PeerJS, 2 to 6 people, bots fill), a game picker and votes, 310 built-in questions plus the Open Trivia DB, and a per-device memory of asked questions.
+Shared by all four: one room-code lobby (PeerJS, 2 to 6 people, bots fill the rest), a game picker with votes, the Channel 20 design, and the sound engine. The quiz games share 310 built-in questions plus the Open Trivia DB, with a per-device memory of questions already asked.
 
-## Current task: Soundclash (branch `feat/soundclash`, issue #10)
+## Running and testing
 
-A fourth game: name the song from a warped three-second loop of a real iTunes preview.
+- Play locally: `node tools/serve.mjs`, then open `http://localhost:5173`.
+- `npm test` runs everything:
+  - the rules suites in Node (`engine`, `arcade`, `soundclash` and `net` tests, 40 in all)
+  - then the browser suites `e2e.mjs` (BidLock, 123 checks), `arcade.e2e.mjs` (76) and `soundclash.e2e.mjs` (94)
+  - all passed on 2026-11-17
+- The browser tests use Playwright's headless shell, so they open no windows, and they use the real GPU.
+- Debug URL switches:
+  - `?trivia=local` and `?media=off`: no trivia service, no photos
+  - `?speed=4`, `?seed=1` and `?auto=1`: faster clock, fixed match, autopilot
+  - `?net=local`, with `&lag=150` for a slow link: rooms between tabs, no network
+  - `?music=offline`: Soundclash's synth tunes only
 
-- Folder `js/games/sampleArena/`: `itunesLoader.js` (genres, search, rounds), `synthTunes.js` (offline melodies), `sampleAudioFX.js` (the three audio tiers and the sabotage effects), `sampleArenaEngine.js` (rules), `sampleArena3d.js` (the club), `sampleArenaGame.js` (the screen).
-- 8 rounds of 16 s: 11 s warped, 5 s clean overtime. Players can change their answer until the clock runs out; their time is their last pick. Speed points (1,000 to 500, then 350 to 150 in overtime) times a streak multiplier (1.2x, 1.5x, 2x). The last round is a clean, double-points "dubplate special".
-- Sabotages cost points: Underwater 300, Scratch 450, Reverse/Chipmunk 600.
-- The audio has three tiers: a decoded Web Audio buffer, then HTML5 audio with a synth overlay, then offline synth tunes (public-domain melodies only).
+## Keeping Soundclash's songs current
 
-### Done (on the branch, not merged)
+- Store listings drift. `node tools/check-songs.mjs` re-checks the anime catalogue (`animeSongs.js`, 59 songs from 32 anime) and every artist crate's hit list (`hits.js`) against the live iTunes Search API. It prints what to fix and takes about eight minutes, paced for Apple's limit.
+- A song that has gone missing only shrinks the pool: each match searches three spare songs, and falls back to the offline synth crate if too little is found.
 
-- [x] Loader, offline synth crate (24 public-domain tunes), the three-tier audio, the rules engine, the 3D club and the screen
-- [x] Wired into the title channel guide (with a crate picker), the lobby (the host picks the crate; guests see it), the shell and the help drawer
-- [x] Balance from simulations against five bots: knowing 50% of songs wins about 23% of matches, knowing 90% wins about 77%. Sabotage pays when aimed at a leader on a streak and loses the match when spammed. Bots hit a leading person about once a match.
-- [x] Tests: `tests/soundclash.test.mjs` (rules) and `tests/soundclash.e2e.mjs` (68 browser checks, including all three audio tiers), plus a fix for a start-up bug where a stored arcade game booted with a BidLock lot on the pedestal
-- [x] README section and screenshots
+## Not verified
 
-### Left
+- Nobody has listened to the sound. The tests prove the audio graph runs (tier, rate, filters, a non-zero spectrum), not that it sounds good.
+- Rooms were tested on one machine: six players over real PeerJS, plus simulated lag and a paused host. They have never been tested across separate networks.
+- **No TURN relay is configured**, so players behind strict networks (often mobile data or school Wi-Fi) may time out. "Check my connection" in the lobby tells them why.
 
-- Merge when the owner says so (merging deploys).
-- Not verified: listening to it. The tests prove the audio graph runs (tier, rate, filters, a non-zero spectrum), not that it sounds good. The live iTunes path was played once on this machine (tier 1, all 8 previews decoded, no errors).
+## Waiting on the owner
 
-### Decisions
+- **TURN credentials.** The owner was going to sign up for a free Metered (or ExpressTURN) account. Put the restricted credentials, or Metered's credentials URL, in `js/net/iceServers.js`, then re-test six players.
+- **Planned, deferred:** a room server on Cloudflare Workers with Durable Objects, one per room code, every player on a WebSocket and the host still the authority. PeerJS stays as a fallback and `?net=local` for tests. Moving hosting off GitHub Pages may come with it. Before starting, tell the owner exactly what to set up in Cloudflare.
 
-- **Concept: a sound clash.** It is drawn from the Jamaican sound-system tradition: each player is a "sound" with a speaker stack, the centre is a Technics-style turntable, and thrown dubplates are the sabotages. It is an original game in the name-that-tune genre, not a copy of SongPop, Heardle or Red Bull Culture Clash.
-- **Apple's terms.** iTunes previews are meant to promote the store. The reveal card links each track to its Apple Music page, and the game credits the previews to iTunes.
-- **Secrets.** The right option and the artwork stay out of snapshots until the reveal. Guests need the preview URL to play the audio, so a determined guest could look a track up. This is accepted.
+## Decisions worth knowing
 
-## How to check things
+- **Originality.** Trapdoor Royale and Last Lamp were made original rather than copies of Trivia Royale or Jackbox's Trivia Murder Party. Soundclash is a name-that-tune game built on the sound-clash tradition, not SongPop or Heardle.
+- **Apple's terms.** iTunes previews are meant to promote the store, so every Soundclash reveal links to Apple Music and the screen credits iTunes.
+- **Secrets.** Snapshots never carry answers before the reveal. Soundclash guests do get preview URLs, because their speakers must play them.
+- **Fact-check.** The built-in question banks were fact-checked on 2026-11-17: about 300 questions and 32 number estimates, with no errors found.
 
-- `npm test` runs everything. Or separately: `node --test tests/engine.test.mjs tests/arcade.test.mjs` for the rules, then `node tests/e2e.mjs` (BidLock) and `node tests/arcade.e2e.mjs` (the arcade games) in the browser.
-- The browser tests use Playwright's headless shell first: it opens no OS windows and still uses the real GPU. Edge and Chrome are fallbacks; headless Edge and Chrome leave hidden windows that can show in Alt+Tab.
-- `node tools/serve.mjs`, then open `http://localhost:5173` to play. Debug parameters: `?trivia=local`, `?media=off`, `?speed=4`, `?seed=1`, `?auto=1`, `?net=local`. For Soundclash, `?music=offline` forces the synth tunes.
+## Standing rules
 
-## Feedback round (2026-11-17)
-
-- More question time: Trapdoor Royale 16 s (speed 10, sudden death 12), Last Lamp 20 s (sprints 14), Soundclash 16 s, the Oracle 20 s.
-- Smooth movement: figures accelerate, ease into their spot and turn smoothly (`Figure.update` in `js/arcade/figures3d.js`); keys steer the Trapdoor contestant, who glides to a stop.
-- Soundclash: answers can be changed; difficulty (Easy, Normal, Hard); curated hit lists per artist in `js/games/sampleArena/hits.js`, checked against real iTunes results. The anime crate is now mostly anime-opening artists. Dave, Future and LiSA were dropped (their searches return the wrong artist or too little); Tyla, CKay and Lil Nas X joined.
-
-## Rooms and networks
-
-- Six players in one room work: tested over real PeerJS with a host and five guests, including a host who drops off the signalling server for 9 s while someone joins (the guest retries and gets in).
-- There is no TURN relay. PeerJS's free TURN servers (`eu-0`/`us-0.turn.peerjs.com`) no longer exist in DNS, and Open Relay (`openrelay.metered.ca`) resolves to a blocked address. Players behind strict NATs (often mobile data) cannot join until a relay is added in `js/net/iceServers.js`. That needs an account with a TURN provider, which is the owner's call.
-
-- Guest lag is smoothed: each player is pinged and the quickest of the last six round trips is used for corrections; guest clocks are corrected for delay; guest inputs are back-dated (at most 0.3 s); BidLock's hammer waits for the slowest guest; snapshots travel as deltas (86% less traffic in BidLock). `?net=local&lag=150` simulates a slow link.
-- The lobby has "Check my connection" (`js/net/netCheck.js`). It also runs after a failed join and logs a `[BidLock rooms]` summary line. One school player on Brave timed out (2026-11-17); the check is there to tell a browser policy from network isolation.
-- Deferred, by the owner's choice: a Cloudflare Workers + Durable Objects room server to replace peer-to-peer, possibly with hosting moved off GitHub Pages. Waiting on the owner's Metered TURN credentials first.
-
-## Not verified yet
-
-- Nobody has listened to the sound in the arcade games.
-- Rooms have only been tested between tabs on one machine, never across two networks.
-- Nobody has independently fact-checked the 260 newer built-in questions.
-
-## Standing rules for this repo
-
-- Feature branch, GitHub issue, pull request. Merging to `main` deploys to GitHub Pages, so ask the owner before merging.
+- Feature branch, GitHub issue, pull request. Ask the owner before merging, because merging deploys.
 - No attribution lines in commits or pull requests.
