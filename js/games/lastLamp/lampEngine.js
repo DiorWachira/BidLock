@@ -33,7 +33,7 @@ export const L_RULES = Object.freeze({
   fogTime: 6, // seconds before the answers show in fog
   flames: 3,
   introTime: 5,
-  questionTime: 15,
+  questionTime: 20,
   revealTime: 3.6,
   descentTime: 3.2,
   miniResultTime: 3.8,
@@ -49,7 +49,7 @@ export const L_RULES = Object.freeze({
   waterStart: -1,
   surgeFromSprint: 3, // from this sprint the water comes up two steps at a time
   highTideRound: 5, // from this round a lost survival game costs two flames
-  sprintTime: 11,
+  sprintTime: 14,
   sprintResultTime: 4.2,
   maxSprints: 12,
 });

@@ -166,12 +166,16 @@ try {
     await p.waitForFunction(() => window.__bidlock && window.__bidlock.screen === 'title');
     ok('the crate is remembered', (await p.locator('.sc-crate[aria-checked="true"]').getAttribute('data-genre')) === 'anime');
     await p.locator('.sc-crate[data-genre="pop"]').click();
+    ok('three difficulty levels, normal by default', (await p.locator('.sc-level').count()) === 3 && (await p.locator('.sc-level[aria-checked="true"]').getAttribute('data-level')) === 'normal');
+    await p.locator('.sc-level[data-level="easy"]').click();
+    ok('a level can be picked', (await p.locator('.sc-level[aria-checked="true"]').getAttribute('data-level')) === 'easy');
     await shot(p, 'title-soundclash');
 
     await p.locator('#btn-start').click();
     await waitPhase(p, 'PLAY');
     const st = await p.evaluate(() => window.__bidlock.arcade.debugState());
     ok('with iTunes blocked, the offline crate plays', st.source === 'offline', JSON.stringify(st));
+    ok('easy: only the gentle warps', await p.evaluate(() => window.__bidlock.arcade.engine.current && ['NIGHTCORE_UP', 'CHOPPED_SCREWED'].includes(window.__bidlock.arcade.engine.current.warp)));
     await p.waitForTimeout(800);
     ok('tier 3: the synth tune through the Web Audio graph', (await deck(p)).tier === 3);
     const spec = await p.evaluate(() => Array.from(window.__bidlock.arcade.deck.spectrum()).reduce((a, b) => a + b, 0));
@@ -194,7 +198,15 @@ try {
     ok('your dubplate costs 450', (await p.evaluate(() => window.__bidlock.arcade.engine.players[0].score)) === 1050);
     ok('one throw a round: the dock locks', (await p.locator('#sc-dock').getAttribute('data-used')) === '1' && (await p.locator('.sc-sab:not([disabled])').count()) === 0);
     await p.keyboard.press('1');
-    ok('key 1 locks in an answer', (await p.locator('.sc-ans[data-state="mine"]').count()) === 1);
+    ok('key 1 picks an answer', (await p.locator('.sc-ans[data-state="mine"]').count()) === 1 && (await p.locator('.sc-ans[data-state="mine"]').getAttribute('data-i')) === '0');
+    const firstAt = await p.evaluate(() => window.__bidlock.arcade.engine.me.at);
+    await p.waitForTimeout(500);
+    ok('the buttons stay live after picking', (await p.locator('.sc-ans:not([disabled])').count()) === 4);
+    await p.locator('.sc-ans[data-i="2"]').click();
+    const changed = await p.evaluate(() => ({ choice: window.__bidlock.arcade.engine.me.choice, at: window.__bidlock.arcade.engine.me.at }));
+    ok('you can change your answer', changed.choice === 2 && (await p.locator('.sc-ans[data-state="mine"]').getAttribute('data-i')) === '2', JSON.stringify(changed));
+    ok('a change resets your time', changed.at > firstAt + 0.3, `${firstAt} -> ${changed.at}`);
+    ok('the card says you can still change it', /CHANGE IT UNTIL THE CLOCK RUNS OUT/.test(await p.locator('#sc-label').textContent()));
     await waitPhase(p, 'REVEAL', 20000);
     await p.waitForSelector('#sc-reveal:not([hidden])');
     ok('the reveal shows the song and who got it', (await p.locator('#sc-reveal h2').textContent()).length > 0 && (await p.locator('.sc-delta li').count()) === 6);
@@ -304,6 +316,7 @@ try {
     await guest.locator('#lobby-code').fill(code);
     await guest.locator('#lobby-join').click();
     await guest.waitForFunction(() => window.__bidlock.lobby.state.status === 'open' && window.__bidlock.lobby.state.players.length === 2, null, { timeout: 10000 });
+    ok('the lobby shows the difficulty too', (await host.locator('#lobby-crates .sc-level').count()) === 3);
     ok('the guest sees the crate, and cannot change it', (await guest.locator('#lobby-crates .sc-crate[aria-pressed="true"]').getAttribute('data-genre')) === 'throwback' && (await guest.locator('#lobby-crates .sc-crate:not([disabled])').count()) === 0);
     ok('six sounds at the table', (await host.evaluate(() => window.__bidlock.lobby.seats().length)) === 6);
     await host.waitForTimeout(300);

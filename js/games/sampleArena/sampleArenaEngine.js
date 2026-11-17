@@ -2,8 +2,8 @@
 //
 // A sound clash is a battle between sound systems. Here every player is a "sound". Each
 // of eight rounds drops a three-second loop of a real song, warped, and four titles. Name
-// it fast: 1,000 points at the drop, falling to 500 by eight seconds. Then the warp
-// lifts for four seconds of overtime, worth 350 falling to 150. Right answers in a row
+// it fast: 1,000 points at the drop, falling to 500 by eleven seconds. Then the warp
+// lifts for five seconds of overtime, worth 350 falling to 150. Right answers in a row
 // build a streak multiplier. Points are also ammunition: spend them mid-round to throw a
 // dubplate at a rival and wreck their audio.
 //
@@ -21,10 +21,10 @@ export const S_RULES = Object.freeze({
   maxSounds: 6,
   introTime: 4,
   cueTime: 1.6, // the needle drops
-  roundTime: 12,
-  warpTime: 8, // then overtime: the warp lifts
+  roundTime: 16,
+  warpTime: 11, // then overtime: the warp lifts
   revealTime: 3.5,
-  allInGrace: 0.7, // once everyone has locked in, the round ends this much later
+  allInGrace: 2, // once everyone has picked, this long to change their minds
   warpMax: 1000,
   warpMin: 500,
   overMax: 350,
@@ -34,6 +34,8 @@ export const S_RULES = Object.freeze({
 });
 
 export const WARP_ORDER = Object.freeze(['NIGHTCORE_UP', 'CHOPPED_SCREWED', 'UNDERWATER_SUB', 'REVERSE_SPIN']);
+// Easy matches keep to the two warps where the song is still easy to place.
+export const EASY_WARPS = Object.freeze(['NIGHTCORE_UP', 'CHOPPED_SCREWED']);
 export const FINAL_WARP = 'CLEAN_FINAL';
 // How much each warp hides a song from a bot's ear.
 const WARP_EASE = { NIGHTCORE_UP: 0.85, CHOPPED_SCREWED: 0.8, UNDERWATER_SUB: 0.72, REVERSE_SPIN: 0.5, CLEAN_FINAL: 1 };
@@ -94,7 +96,8 @@ export class SampleArenaEngine {
     const list = (seats || []).slice(0, S_RULES.maxSounds);
     if (list.length < 2) throw new Error('Soundclash needs at least two sounds.');
     if (!match || !Array.isArray(match.rounds) || !match.rounds.length) throw new Error('Soundclash needs a crate of rounds.');
-    this.options = { seed, source: match.source, genre: match.genre };
+    this.options = { seed, source: match.source, genre: match.genre, level: match.level || 'normal' };
+    const warpPool = match.level === 'easy' ? EASY_WARPS : WARP_ORDER;
     this.rng = mulberry32(seed);
     this.mirror = false;
     this.localId = localId;
@@ -105,7 +108,7 @@ export class SampleArenaEngine {
     let prev = null;
     for (let i = 0; i < this.rounds.length; i++) {
       if (i === this.rounds.length - 1) { this.rounds[i].warp = FINAL_WARP; break; }
-      if (!bag.length) bag = shuffle(WARP_ORDER.slice(), this.rng);
+      if (!bag.length) bag = shuffle(warpPool.slice(), this.rng);
       let k = bag.findIndex((w) => w !== prev);
       if (k < 0) k = 0;
       prev = bag.splice(k, 1)[0];
@@ -169,16 +172,21 @@ export class SampleArenaEngine {
   }
 
   // ---------- inputs ----------
+  // Pick, or change your pick, until the clock runs out. Your time is when you last
+  // picked, so changing your mind costs speed points.
   answerFor(id, choice) {
     const p = this.players[id];
-    if (!p || this.phase !== S_PHASE.PLAY || p.locked) return false;
+    if (!p || this.phase !== S_PHASE.PLAY) return false;
     if (!Number.isInteger(choice) || choice < 0 || choice > 3) return false;
+    if (p.locked && p.choice === choice) return false;
+    const changed = p.locked;
     p.locked = true;
+    p.changes = (p.changes || 0) + (changed ? 1 : 0);
     p.choice = choice;
     // A guest's answer is timed from when it was sent: inputLag is how late it arrived.
     p.at = Math.round(Math.max(0, this.elapsed - (this.inputLag || 0)) * 1000) / 1000;
     p.ok = choice === this.correct;
-    this.emit('lock', { id, at: p.at });
+    this.emit('lock', { id, at: p.at, changed });
     return true;
   }
 
@@ -190,7 +198,7 @@ export class SampleArenaEngine {
     if (p.sabRound === this.round) return false; // one throw a round
     if (p.score < s.cost) return false;
     let target = to === 'leader' ? this._topRival(id) : this.players[to];
-    if (!target || target.id === id || target.locked) return false;
+    if (!target || target.id === id) return false;
     p.score -= s.cost;
     p.sabRound = this.round;
     p.sabLanded++;
@@ -217,7 +225,7 @@ export class SampleArenaEngine {
 
   _topRival(id) {
     let best = null;
-    for (const p of this.players) if (p.id !== id && !p.locked && (!best || p.score > best.score)) best = p;
+    for (const p of this.players) if (p.id !== id && (!best || p.score > best.score)) best = p;
     return best;
   }
 
@@ -253,7 +261,7 @@ export class SampleArenaEngine {
     this.correct = r.correct;
     this.last = null;
     for (const p of this.players) {
-      p.locked = false; p.at = 0; p.choice = null; p.ok = null; p.gain = 0; p.mult = 1; p.fx = {}; p.plan = null; p.botSab = null;
+      p.locked = false; p.at = 0; p.choice = null; p.ok = null; p.gain = 0; p.mult = 1; p.fx = {}; p.plan = null; p.botSab = null; p.changes = 0;
     }
     this._phase(S_PHASE.CUE, S_RULES.cueTime);
     this.emit('cue', { n: this.round, of: this.rounds.length, warp: r.warp, final: this.current.final });

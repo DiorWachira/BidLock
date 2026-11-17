@@ -6,7 +6,7 @@
 import { SampleArenaEngine, S_PHASE, S_RULES, SABOTAGES, SABOTAGE_ORDER, speedPoints, streakMult } from './sampleArenaEngine.js';
 import { SampleDeck, WARPS } from './sampleAudioFX.js';
 import { SampleStage } from './sampleArena3d.js';
-import { loadMatch, genreById } from './itunesLoader.js';
+import { loadMatch, genreById, levelById } from './itunesLoader.js';
 import { GameBase, esc } from '../../arcade/gameBase.js';
 import { mulberry32 } from '../../engine/auctionEngine.js';
 
@@ -44,7 +44,7 @@ export class SampleArenaGame extends GameBase {
           <p class="ag-chip sc-warp" id="sc-warp" hidden></p>
           <p class="ag-chip sc-tier" id="sc-tier" hidden></p>
           <p class="ag-chip ag-left" id="sc-score"></p>
-          <div class="sc-clock" id="sc-clock" aria-hidden="true"><i id="sc-bar"></i><b class="sc-ot" title="Overtime: the warp lifts"></b></div>
+          <div class="sc-clock" id="sc-clock" aria-hidden="true"><i id="sc-bar"></i><b class="sc-ot" title="Overtime: the warp lifts" style="left:${((S_RULES.roundTime - S_RULES.warpTime) / S_RULES.roundTime * 100).toFixed(2)}%"></b></div>
         </div>
         <p class="sc-alert" id="sc-alert" role="alert" hidden></p>
         <aside class="sc-dock" id="sc-dock" aria-label="Sabotage: spend points to throw a dubplate at a rival">
@@ -109,9 +109,10 @@ export class SampleArenaGame extends GameBase {
     if (role === 'client') { this.showCard(this.warmHtml('The host is digging through the crates…')); return; }
     this.colors = this.shell.colors(this.seats);
     const genre = genreById(this.shell.genre ? this.shell.genre() : 'all');
-    this.showCard(this.warmHtml(`Digging through the crates: ${genre.name}.`));
+    const level = levelById(this.shell.level ? this.shell.level() : 'normal');
+    this.showCard(this.warmHtml(`Digging through the crates: ${genre.name}, ${level.name.toLowerCase()}.`));
     const debug = this.shell.debug || {};
-    loadMatch({ genre: genre.id, rng: mulberry32((seed ^ 0x2c1b3c6d) >>> 0), offline: !!debug.musicOffline || (typeof navigator !== 'undefined' && navigator.onLine === false) })
+    loadMatch({ genre: genre.id, level: level.id, rng: mulberry32((seed ^ 0x2c1b3c6d) >>> 0), offline: !!debug.musicOffline || (typeof navigator !== 'undefined' && navigator.onLine === false) })
       .then(async (match) => {
         if (this.stopped) return;
         this.match = match;
@@ -145,17 +146,20 @@ export class SampleArenaGame extends GameBase {
   isOver() { return this.engine.phase === S_PHASE.PODIUM; }
 
   // ---------- input ----------
+  // Pick an answer, or change it, until the clock runs out.
   pick(i) {
     const e = this.engine;
     const me = e.me;
-    if (!me || e.phase !== S_PHASE.PLAY || me.locked || this.myChoice != null) return;
-    // A scrambled deck: keys and buttons follow the shuffled order on screen.
+    if (!me || e.phase !== S_PHASE.PLAY) return;
+    const current = this.myChoice != null ? this.myChoice : me.choice;
+    if (current === i) return;
     this.myChoice = i;
     this.myAt = e.elapsed;
     this.shell.audio.blip();
     this.send('answer', { i });
     this.renderAnswers();
-    this.note(`Locked in at ${e.elapsed.toFixed(2)} s${e.overtime ? ' (overtime)' : ''}.`);
+    const t = `${e.elapsed.toFixed(2)} s${e.overtime ? ' (overtime)' : ''}`;
+    this.note(current == null ? `Picked at ${t}. You can change your mind until the clock runs out.` : `Changed at ${t}. Your time counts from now.`);
   }
 
   throw(kind) {
@@ -167,15 +171,14 @@ export class SampleArenaGame extends GameBase {
     if (me.score < s.cost) { this.shell.audio.denied(); this.note(`${s.name} costs ${s.cost}. You have ${me.score}.`); return; }
     const to = this.target === 'leader' ? 'leader' : this.target;
     const victim = to === 'leader' ? this.topRival() : e.players[to];
-    if (!victim) { this.shell.audio.denied(); this.note('Nobody left to hit: every rival has locked in.'); return; }
-    if (victim.locked) { this.shell.audio.denied(); this.note(`${victim.name} has already locked in.`); return; }
+    if (!victim) { this.shell.audio.denied(); this.note('Nobody to hit.'); return; }
     this.send('sab', { kind, to });
   }
 
   topRival() {
     const e = this.engine;
     let best = null;
-    for (const p of e.players) if (p.id !== e.localId && !p.locked && (!best || p.score > best.score)) best = p;
+    for (const p of e.players) if (p.id !== e.localId && (!best || p.score > best.score)) best = p;
     return best;
   }
 
@@ -262,7 +265,7 @@ export class SampleArenaGame extends GameBase {
         this.renderDock();
         break;
       case 'lock':
-        if (d.id === e.localId) a.slam();
+        if (d.id === e.localId && !d.changed) a.slam();
         this.renderDock();
         break;
       case 'overtime':
@@ -350,6 +353,16 @@ export class SampleArenaGame extends GameBase {
     if (this.stage) this.stage.setScores(e.players.map((p) => ({ id: p.id, score: p.score, streak: p.streak, locked: e.phase === S_PHASE.PLAY && p.locked })));
   }
 
+  // Your current pick: this device's latest during play (a guest's mirror only learns
+  // the host's view at the reveal), the room's record after it.
+  mine() {
+    const e = this.engine;
+    const me = e.me;
+    if (!me) return null;
+    if (OPEN.has(e.phase)) return me.choice != null ? me.choice : this.myChoice;
+    return this.myChoice != null ? this.myChoice : me.choice;
+  }
+
   // Display order of the four options: the engine's order, unless a scramble is on.
   order() {
     const fx = this.engine.effects(this.engine.me);
@@ -361,11 +374,11 @@ export class SampleArenaGame extends GameBase {
     const cur = e.current;
     if (!cur) { this.el.answers.innerHTML = ''; return; }
     const me = e.me;
-    const live = e.phase === S_PHASE.PLAY && me && !me.locked && this.myChoice == null;
+    const live = e.phase === S_PHASE.PLAY && !!me;
     const open = OPEN.has(e.phase);
-    const mine = me && me.choice != null ? me.choice : this.myChoice;
+    const mine = this.mine();
     const order = this.order();
-    this.el.label.textContent = e.phase === S_PHASE.CUE ? 'NEEDLE DROP…' : e.phase === S_PHASE.PLAY ? (live ? 'NAME THAT SONG' : 'LOCKED IN · WAIT FOR THE REVEAL') : open ? 'THE REVEAL' : 'NAME THAT SONG';
+    this.el.label.textContent = e.phase === S_PHASE.CUE ? 'NEEDLE DROP…' : e.phase === S_PHASE.PLAY ? (mine == null ? 'NAME THAT SONG' : 'YOUR PICK · CHANGE IT UNTIL THE CLOCK RUNS OUT') : open ? 'THE REVEAL' : 'NAME THAT SONG';
     this.el.answers.innerHTML = order.map((i, pos) => {
       const o = cur.options[i];
       let state = '';
@@ -392,7 +405,7 @@ export class SampleArenaGame extends GameBase {
     const top = this.topRival();
     this.el.targets.innerHTML = [
       `<button type="button" role="radio" data-to="leader" aria-checked="${this.target === 'leader'}" class="sc-pill">#1 LEADER${top ? ` · ${esc(top.name)}` : ''}</button>`,
-      ...rivals.map((p) => `<button type="button" role="radio" data-to="${p.id}" aria-checked="${this.target === p.id}" class="sc-pill" style="--who:${this.colors[p.id]}" ${p.locked && playing ? 'data-locked="1"' : ''}>${esc(p.name)}</button>`),
+      ...rivals.map((p) => `<button type="button" role="radio" data-to="${p.id}" aria-checked="${this.target === p.id}" class="sc-pill" style="--who:${this.colors[p.id]}">${esc(p.name)}</button>`),
     ].join('');
     this.el.sabs.innerHTML = SABOTAGE_ORDER.map((k) => {
       const s = SABOTAGES[k];
@@ -535,8 +548,8 @@ export class SampleArenaGame extends GameBase {
     // Guests: re-render when a snapshot changes what the buttons or dock should show.
     if (me && this.el.q && !this.el.q.hidden) {
       const order = this.order();
-      const mine = me.choice != null ? me.choice : this.myChoice;
-      const live = e.phase === S_PHASE.PLAY && !me.locked && this.myChoice == null;
+      const mine = this.mine();
+      const live = e.phase === S_PHASE.PLAY;
       if (this.answersKey !== `${e.phase}|${e.round}|${order.join('')}|${mine}|${live}`) this.renderAnswers();
       if (this.dockKey !== `${e.phase}|${e.round}|${me.score}|${me.sabRound === e.round}|${this.target}|${e.players.map((p) => (p.locked ? 1 : 0)).join('')}`) this.renderDock();
     }

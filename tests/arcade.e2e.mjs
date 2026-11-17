@@ -115,11 +115,23 @@ try {
     ok('the answers no longer count the crowd', (await p.locator('.tr-crowd').allTextContents()).every((t) => !/●/.test(t)));
     const before = await p.evaluate(() => { const f = window.__bidlock.arcade.stage.figures.get(0); return [f.pos.x, f.pos.z]; });
     await unpinned();
+    // Let the contestant settle on platform A first.
+    await p.waitForFunction(() => { const f = window.__bidlock.arcade.stage.figures.get(0); return Math.hypot(f.vx, f.vz) < 0.05; }, null, { timeout: 5000 });
+    const speed = () => p.evaluate(() => { const f = window.__bidlock.arcade.stage.figures.get(0); return Math.hypot(f.vx, f.vz); });
     await p.keyboard.down('ArrowRight');
-    await p.waitForTimeout(700);
+    await p.waitForTimeout(60);
+    const early = await speed();
+    await p.waitForTimeout(640);
+    const cruising = await speed();
     await p.keyboard.up('ArrowRight');
+    await p.waitForTimeout(90);
+    const gliding = await speed();
+    await p.waitForTimeout(700);
+    const stopped = await speed();
     const after = await p.evaluate(() => { const f = window.__bidlock.arcade.stage.figures.get(0); return [f.pos.x, f.pos.z]; });
     ok('arrow keys run your contestant', Math.hypot(after[0] - before[0], after[1] - before[1]) > 0.3, JSON.stringify([before, after]));
+    ok('movement: speeds up smoothly instead of jumping to full speed', early < cruising * 0.8 && cruising > 2, `${early.toFixed(2)} -> ${cruising.toFixed(2)}`);
+    ok('movement: glides and eases to a stop when the key is let go', gliding > 0.2 && gliding < cruising && stopped < 0.05, `${gliding.toFixed(2)} -> ${stopped.toFixed(2)}`);
     await p.keyboard.press('e');
     await p.waitForTimeout(1200);
     await shot(p, 'royale-question');

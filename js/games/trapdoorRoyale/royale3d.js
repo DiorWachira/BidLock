@@ -361,17 +361,26 @@ export class RoyaleStage {
   }
 
   // The local contestant walks with the keys. Returns the platform now underfoot, or -1.
+  // Stop walking with the keys: the contestant eases to a halt where they are.
+  stopLocal() {
+    const f = this.figures.get(this.localId);
+    if (f) f.walk(null);
+  }
+
   localMove(dx, dz, dt) {
     const f = this.figures.get(this.localId);
-    if (!f || f.hidden || f.state === 'fall' || this.locked) return -1;
+    if (!f || f.hidden || f.state === 'fall') return -1;
+    if (this.locked) { f.walk(null); return -1; }
     const len = Math.hypot(dx, dz);
-    if (len < 0.01) return this.platformAt(f.pos.x, f.pos.z);
-    const step = 0.6;
-    const nx = f.pos.x + (dx / len) * step;
-    const nz = f.pos.z + (dz / len) * step;
-    if (this._walkable(nx, nz)) f.moveTo(nx, nz, 0);
-    else if (this._walkable(nx, f.pos.z)) f.moveTo(nx, f.pos.z, 0);
-    else if (this._walkable(f.pos.x, nz)) f.moveTo(f.pos.x, nz, 0);
+    if (len < 0.01) { f.walk(null); return this.platformAt(f.pos.x, f.pos.z); }
+    // Steer, sliding along an edge rather than stopping dead at it.
+    const ux = dx / len;
+    const uz = dz / len;
+    const look = 0.45;
+    if (this._walkable(f.pos.x + ux * look, f.pos.z + uz * look)) f.walk({ x: ux, z: uz });
+    else if (ux && this._walkable(f.pos.x + Math.sign(ux) * look, f.pos.z)) f.walk({ x: Math.sign(ux), z: 0 });
+    else if (uz && this._walkable(f.pos.x, f.pos.z + Math.sign(uz) * look)) f.walk({ x: 0, z: Math.sign(uz) });
+    else f.walk(null);
     return this.platformAt(f.pos.x, f.pos.z);
   }
 

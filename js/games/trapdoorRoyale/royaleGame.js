@@ -161,7 +161,7 @@ export class RoyaleGame extends GameBase {
           a.siren();
           this.note(TWISTS[d.twist].line);
         } else {
-          this.note(d.mode === 'sudden' ? `Sudden death. ${d.left} left. Right and slowest still drops.` : d.mode === 'speed' && d.n === R_RULES.speedFromRound ? 'Speed rounds: seven seconds from now on.' : '');
+          this.note(d.mode === 'sudden' ? `Sudden death. ${d.left} left. Right and slowest still drops.` : d.mode === 'speed' && d.n === R_RULES.speedFromRound ? `Speed rounds: ${R_RULES.speedTime} seconds from now on.` : '');
         }
         break;
       case 'shuffle':
@@ -345,16 +345,23 @@ export class RoyaleGame extends GameBase {
         const interval = e.t > 2 ? 0.5 : e.t > 1 ? 0.33 : 0.2;
         if (this.lastTick - e.t >= interval || this.lastTick > R_RULES.scrambleAt + 0.1) { this.lastTick = e.t; this.shell.audio.tick(e.t <= 1); }
       }
-      // Walking with the keys picks whichever platform you end up on.
-      if (this.stage && this.keys.size && e.me && e.me.alive && !e.stunned(e.me)) {
+      // Walking with the keys picks whichever platform you end up on. Releasing them
+      // (or being pinned) lets the contestant ease to a stop.
+      const canWalk = this.stage && e.me && e.me.alive && !e.stunned(e.me);
+      if (canWalk && (this.keys.size || this.walking)) {
         const dx = (this.keys.has('right') ? 1 : 0) - (this.keys.has('left') ? 1 : 0);
         const dz = (this.keys.has('down') ? 1 : 0) - (this.keys.has('up') ? 1 : 0);
+        this.walking = !!(dx || dz);
         const under = this.stage.localMove(dx, dz, dt);
         if (under >= 0 && under !== e.me.choice && under !== this.lastPlatform) { this.lastPlatform = under; this.send('move', { to: under }); this.shell.audio.blip(); }
         if (under < 0) this.lastPlatform = -1;
+      } else if (this.walking && this.stage) {
+        this.walking = false;
+        this.stage.stopLocal();
       }
     } else {
       this.el.bar.style.transform = 'scaleX(0)';
+      if (this.walking && this.stage) { this.walking = false; this.stage.stopLocal(); }
     }
     if (this.stage) {
       this.stage.update(dt, reduce);

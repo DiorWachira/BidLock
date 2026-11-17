@@ -8,6 +8,7 @@
 // store page, and the screen credits the previews to iTunes.
 
 import { SYNTH_TUNES } from './synthTunes.js';
+import { HITS } from './hits.js';
 
 export const ITUNES_SEARCH = 'https://itunes.apple.com/search';
 export const ROUND_COUNT = 8;
@@ -23,11 +24,11 @@ export const GENRES = Object.freeze([
   },
   {
     id: 'hiphop', name: 'Hip-Hop, Rap & Trap', short: 'HIP-HOP',
-    terms: ['Drake', 'Kendrick Lamar', 'Travis Scott', 'Future', '21 Savage', 'Lil Baby', 'J. Cole', 'Nicki Minaj', 'Cardi B', 'Post Malone', 'Eminem', 'Megan Thee Stallion', 'Metro Boomin', 'Lil Uzi Vert', 'Doechii'],
+    terms: ['Drake', 'Kendrick Lamar', 'Travis Scott', 'Lil Nas X', '21 Savage', 'Lil Baby', 'J. Cole', 'Nicki Minaj', 'Cardi B', 'Post Malone', 'Eminem', 'Megan Thee Stallion', 'Metro Boomin', 'Lil Uzi Vert', 'Doechii'],
   },
   {
     id: 'uk', name: 'UK Grime, Drill & Afrobeats', short: 'GRIME · AFRO',
-    terms: ['Stormzy', 'Skepta', 'Dave', 'Central Cee', 'Burna Boy', 'Wizkid', 'Davido', 'Rema', 'Tems', 'Headie One', 'J Hus', 'Asake', 'Little Simz', 'AJ Tracey', 'Ayra Starr'],
+    terms: ['Stormzy', 'Skepta', 'Tyla', 'Central Cee', 'Burna Boy', 'Wizkid', 'Davido', 'Rema', 'Tems', 'Headie One', 'J Hus', 'Asake', 'Little Simz', 'AJ Tracey', 'Ayra Starr', 'CKay'],
   },
   {
     id: 'throwback', name: '2000s & 2010s Throwback Anthems', short: 'THROWBACK',
@@ -39,11 +40,23 @@ export const GENRES = Object.freeze([
   },
   {
     id: 'anime', name: 'Anime, Gaming & Meme Bangers', short: 'ANIME · GAMES · MEMES',
-    terms: ['YOASOBI', 'LiSA', 'Kenshi Yonezu', 'Ado', 'Linked Horizon', 'Aimer', 'C418', 'Toby Fox', 'Rick Astley', 'Darude', 'Smash Mouth', 'Eiffel 65', 'Gotye', 'Vengaboys', 'Crazy Frog'],
-    loose: true, // scene searches: do not insist the artist matches the term
+    // Mostly the artists behind the best-known anime openings, then games and memes.
+    terms: ['YOASOBI', 'Kenshi Yonezu', 'Ado', 'Linked Horizon', 'Aimer', 'Creepy Nuts', 'Mrs. GREEN APPLE', 'Official HIGE DANdism', 'King Gnu', 'TK from Ling tosite sigure', 'Ikimonogakari', 'KANA-BOON', 'Yoko Takahashi', 'Spyair', 'Vaundy', 'C418', 'Toby Fox', 'Rick Astley', 'Darude', 'Smash Mouth', 'Eiffel 65', 'Gotye', 'Vengaboys', 'Crazy Frog'],
   },
 ]);
 export const SHUFFLE = Object.freeze({ id: 'all', name: 'All-Genre Shuffle', short: 'SHUFFLE' });
+
+// How hard the match is. Easy and Normal ask only about each artist's famous songs (the
+// curated hit lists in hits.js); Hard asks about anything they have released. Easy also
+// keeps to the friendlier warps and puts each answer by a different artist.
+export const LEVELS = Object.freeze([
+  { id: 'easy', name: 'Easy', line: 'Big hits, gentle warps' },
+  { id: 'normal', name: 'Normal', line: 'Big hits, every warp' },
+  { id: 'hard', name: 'Hard', line: 'Deep cuts, every warp' },
+]);
+export function levelById(id) {
+  return LEVELS.find((l) => l.id === id) || LEVELS[1];
+}
 export const GENRE_CHOICES = Object.freeze([SHUFFLE, ...GENRES]);
 
 export function genreById(id) {
@@ -63,7 +76,21 @@ export function cleanTitle(t) {
     .trim();
 }
 
-const key = (s) => cleanTitle(s).toLowerCase().replace(/[^a-z0-9]+/g, '');
+const key = (s) => cleanTitle(s).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '');
+
+// Is this title one of the artist's hits? Tolerant of punctuation, featured artists and
+// the odd subtitle ("Wake Me Up" matches "Wake Me Up - Radio Edit").
+export function isHit(title, hits) {
+  if (!hits || !hits.length) return false;
+  const t = key(title);
+  if (!t) return false;
+  const bare = (x) => key(String(x).replace(/\s*[([].*$/, '')); // without any bracketed subtitle
+  const tb = bare(title);
+  return hits.some((h) => {
+    const k = key(h);
+    return k && (t === k || (tb && tb === bare(h)));
+  });
+}
 
 function shuffled(list, rng) {
   const a = list.slice();
@@ -113,14 +140,15 @@ function jsonp(url, timeoutMs) {
 
 // One search: the tracks worth asking about, most popular first (iTunes ranks results
 // by relevance, which for an artist search is close to popularity).
-export function parseResults(data, { term = '', loose = false } = {}) {
+export function parseResults(data, { term = '', loose = false, hits = null } = {}) {
   if (!data || !Array.isArray(data.results)) return [];
-  const want = String(term).toLowerCase();
+  const fold = (x) => String(x).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const want = fold(term);
   const out = [];
   data.results.forEach((r, idx) => {
     if (!r || r.kind !== 'song' || !r.previewUrl || !r.trackName || !r.artistName || !r.artworkUrl100) return;
     if (JUNK.test(r.trackName) || JUNK.test(r.artistName) || JUNK.test(r.collectionName || '')) return;
-    if (!loose && want && !r.artistName.toLowerCase().includes(want.replace(/^the /, ''))) return;
+    if (!loose && want && !fold(r.artistName).includes(want.replace(/^the /, ''))) return;
     const title = cleanTitle(r.trackName);
     if (!title || title.length > 48) return;
     out.push({
@@ -131,6 +159,7 @@ export function parseResults(data, { term = '', loose = false } = {}) {
       art: String(r.artworkUrl100).replace('100x100bb', '400x400bb'),
       link: r.trackViewUrl || r.collectionViewUrl || '',
       pop: 1 - idx / Math.max(LIMIT, data.results.length),
+      hit: isHit(r.trackName, hits),
       synth: null,
     });
   });
@@ -141,15 +170,19 @@ export function parseResults(data, { term = '', loose = false } = {}) {
 // the shuffle. Fewer calls than Apple's limit of about 20 a minute.
 export function planSearches(genreId, rng) {
   if (genreId === 'all') {
-    return shuffled(GENRES, rng).slice(0, 4).map((g) => ({ term: shuffled(g.terms, rng)[0], loose: !!g.loose, genre: g.id }));
+    return shuffled(GENRES, rng).slice(0, 4).map((g) => { const term = shuffled(g.terms, rng)[0]; return { term, loose: !!g.loose, genre: g.id, hits: hitsFor(g.id, term) }; });
   }
   const g = GENRES.find((x) => x.id === genreId) || GENRES[0];
-  return shuffled(g.terms, rng).slice(0, 3).map((term) => ({ term, loose: !!g.loose, genre: g.id }));
+  return shuffled(g.terms, rng).slice(0, 3).map((term) => ({ term, loose: !!g.loose, genre: g.id, hits: hitsFor(g.id, term) }));
 }
 
 // Eight rounds from a pool of tracks. Targets lean popular; rivals come from the same
 // crate, at most one by the same artist.
-export function buildRounds(pool, rng, count = ROUND_COUNT) {
+export function hitsFor(genreId, term) {
+  return (HITS[genreId] && HITS[genreId][term]) || [];
+}
+
+export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal' } = {}) {
   const seen = new Set();
   const tracks = [];
   for (const t of pool) {
@@ -162,8 +195,18 @@ export function buildRounds(pool, rng, count = ROUND_COUNT) {
   }
   if (tracks.length < count + 3) return null;
   const byPop = tracks.slice().sort((a, b) => b.pop - a.pop);
-  const head = shuffled(byPop.slice(0, Math.max(count, Math.ceil(byPop.length * 0.6))), rng);
-  const targets = head.slice(0, count);
+  let targets;
+  if (level === 'hard') {
+    // Deep cuts: anything but the hits, popular first, then whatever is left.
+    const deep = byPop.filter((t) => !t.hit);
+    targets = [...shuffled(deep.slice(0, Math.max(count, Math.ceil(deep.length * 0.8))), rng), ...shuffled(byPop.filter((t) => t.hit), rng)].slice(0, count);
+  } else {
+    // The famous ones: the curated hits first, topped up with the most popular others.
+    const hits = shuffled(byPop.filter((t) => t.hit || t.synth), rng);
+    const rest = byPop.filter((t) => !t.hit && !t.synth);
+    targets = [...hits, ...shuffled(rest.slice(0, Math.max(count, Math.ceil(rest.length * 0.4))), rng)].slice(0, count);
+  }
+  const sameArtistMax = level === 'easy' ? 0 : level === 'hard' ? 2 : 1;
   const used = new Set(targets.map((t) => t.id));
   return targets.map((t, n) => {
     const same = (x) => (x.genre || '') === (t.genre || '');
@@ -180,9 +223,14 @@ export function buildRounds(pool, rng, count = ROUND_COUNT) {
       if (picks.length >= 3) break;
       if (picks.some((p) => key(p.title) === key(x.title))) continue;
       const mine = x.artist.toLowerCase() === t.artist.toLowerCase();
-      if (mine && sameArtist >= 1) continue;
+      if (mine && sameArtist >= sameArtistMax) continue;
       if (mine) sameArtist++;
       picks.push(x);
+    }
+    // Not enough other artists in the pool: fill with the same artist rather than fewer options.
+    for (const x of ranked) {
+      if (picks.length >= 3) break;
+      if (!picks.includes(x) && !picks.some((p) => key(p.title) === key(x.title))) picks.push(x);
     }
     const options = shuffled([t, ...picks], rng);
     return {
@@ -205,7 +253,7 @@ export function offlineRounds(rng, count = ROUND_COUNT) {
 }
 
 // Everything the match needs. Never throws; `source` says where the music came from.
-export async function loadMatch({ genre = 'all', rng = Math.random, offline = false, fetchImpl = null, timeoutMs = 6000 } = {}) {
+export async function loadMatch({ genre = 'all', level = 'normal', rng = Math.random, offline = false, fetchImpl = null, timeoutMs = 6000 } = {}) {
   if (!offline) {
     try {
       const plan = planSearches(genre, rng);
@@ -218,9 +266,9 @@ export async function loadMatch({ genre = 'all', rng = Math.random, offline = fa
       const pool = [];
       const longest = Math.max(0, ...results.map((r) => r.length));
       for (let i = 0; i < longest; i++) for (const r of results) if (r[i]) pool.push(r[i]);
-      const rounds = buildRounds(pool, rng);
-      if (rounds) return { source: 'itunes', genre, rounds, searched: plan.map((p) => p.term) };
+      const rounds = buildRounds(pool, rng, ROUND_COUNT, { level });
+      if (rounds) return { source: 'itunes', genre, level, rounds, searched: plan.map((p) => p.term), hits: rounds.filter((r) => r.target.hit).length };
     } catch { /* fall through to the synth */ }
   }
-  return { source: 'offline', genre, rounds: offlineRounds(rng), searched: [] };
+  return { source: 'offline', genre, level, rounds: offlineRounds(rng), searched: [] };
 }

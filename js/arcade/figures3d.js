@@ -54,6 +54,9 @@ export class Figure {
     this.phase = (id * 1.7) % TAU;
     this.stride = 0;
     this.speed = 3.4;
+    this.vx = 0; // ground velocity: figures speed up, ease to a stop and turn smoothly
+    this.vz = 0;
+    this.steer = null; // {x, z}: walking with the keys, a direction rather than a spot
     this.vy = 0;
     this.spin = new THREE.Vector3();
     this.ghost = false;
@@ -169,10 +172,19 @@ export class Figure {
   place(x, y, z) {
     this.pos.set(x, y, z);
     this.target.set(x, y, z);
+    this.vx = 0;
+    this.vz = 0;
+    this.steer = null;
     this.group.position.copy(this.pos);
   }
 
-  moveTo(x, z, y = this.target.y) { this.target.set(x, y, z); if (this.state !== 'fall') this.state = 'run'; }
+  moveTo(x, z, y = this.target.y) { this.steer = null; this.target.set(x, y, z); if (this.state !== 'fall') this.state = 'run'; }
+  // Walk in a direction (keys), or stop walking (null): the figure eases to a halt.
+  walk(dir) {
+    if (this.state === 'fall') return;
+    if (dir) { this.steer = dir; this.state = 'run'; return; }
+    if (this.steer) { this.steer = null; this.target.set(this.pos.x + this.vx * 0.12, this.target.y, this.pos.z + this.vz * 0.12); }
+  }
   face(angle) { this.heading = angle; }
   cheer(seconds = 2.4) { this.cheerT = seconds; }
   rock() { this.rockT = 0.6; }
@@ -183,6 +195,7 @@ export class Figure {
   fall() {
     if (this.state === 'fall') return;
     this.state = 'fall';
+    this.steer = null;
     this.vy = 1.5;
     this.spin.set((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 9);
   }
@@ -211,6 +224,9 @@ export class Figure {
   reset() {
     this.state = 'idle';
     this.vy = 0;
+    this.vx = 0;
+    this.vz = 0;
+    this.steer = null;
     this.hidden = false;
     this.group.visible = true;
     this.root.rotation.set(0, 0, 0);
@@ -242,20 +258,46 @@ export class Figure {
       return;
     }
 
-    // Run towards the target.
-    const dx = this.target.x - this.pos.x;
-    const dz = this.target.z - this.pos.z;
-    const dist = Math.hypot(dx, dz);
-    const speed = this.speed * (frantic ? 1.45 : 1);
-    let moving = false;
-    if (dist > 0.04 && !still) {
-      const step = Math.min(dist, speed * dt);
-      this.pos.x += (dx / dist) * step;
-      this.pos.z += (dz / dist) * step;
-      this.heading = Math.atan2(dx, dz);
-      this.stride += step * 5.2;
-      moving = true;
-    } else if (this.state === 'run') {
+    // Run: the velocity eases towards where the figure wants to go, so it speeds up,
+    // slows into its spot and curves round instead of snapping.
+    const top = this.speed * (frantic ? 1.45 : 1);
+    let wantX = 0;
+    let wantZ = 0;
+    let dist = 0;
+    if (!still && this.steer) {
+      wantX = this.steer.x * top;
+      wantZ = this.steer.z * top;
+      dist = Infinity;
+    } else if (!still) {
+      const dx = this.target.x - this.pos.x;
+      const dz = this.target.z - this.pos.z;
+      dist = Math.hypot(dx, dz);
+      if (dist > 0.02) {
+        const sp = top * Math.min(1, dist / 0.75); // arrive gently
+        wantX = (dx / dist) * sp;
+        wantZ = (dz / dist) * sp;
+      }
+    }
+    const accel = 1 - Math.exp(-(wantX || wantZ ? 9 : 14) * dt);
+    this.vx += (wantX - this.vx) * accel;
+    this.vz += (wantZ - this.vz) * accel;
+    let sp = Math.hypot(this.vx, this.vz);
+    if (!this.steer && sp * dt >= dist) {
+      // Arrived: settle exactly on the spot.
+      if (dist > 0) { this.pos.x = this.target.x; this.pos.z = this.target.z; }
+      this.vx = 0;
+      this.vz = 0;
+      sp = 0;
+    } else {
+      this.pos.x += this.vx * dt;
+      this.pos.z += this.vz * dt;
+    }
+    const pace = clamp(sp / Math.max(0.01, top), 0, 1);
+    const moving = sp > 0.2;
+    if (moving) {
+      this.heading = Math.atan2(this.vx, this.vz);
+      this.stride += sp * dt * 5.2;
+    } else if (this.state === 'run' && !this.steer) {
       this.state = 'idle';
     }
     this.pos.y = damp(this.pos.y, this.target.y, 8, dt);
@@ -263,13 +305,14 @@ export class Figure {
     let bob = 0;
     let lean = 0;
     if (moving) {
-      const s = Math.sin(this.stride);
+      // The stride, arm swing and lean grow with speed.
+      const s = Math.sin(this.stride) * (0.35 + 0.65 * pace);
       this.legL.rotation.x = s * 0.95;
       this.legR.rotation.x = -s * 0.95;
       this.armL.rotation.set(-s * 0.9, 0, 0.12);
       if (!this.lantern) this.armR.rotation.set(s * 0.9, 0, -0.12);
-      bob = Math.abs(Math.cos(this.stride)) * 0.06;
-      lean = 0.2;
+      bob = Math.abs(Math.cos(this.stride)) * 0.06 * pace;
+      lean = 0.2 * pace;
     } else if (this.cheerT > 0) {
       const h = Math.abs(Math.sin(t * 9 + this.phase));
       bob = h * 0.22;
@@ -312,7 +355,7 @@ export class Figure {
     // Turn towards the heading by the short way round.
     let d = this.heading - g.rotation.y;
     d = Math.atan2(Math.sin(d), Math.cos(d));
-    g.rotation.y += d * clamp(dt * 10, 0, 1);
+    g.rotation.y += d * clamp(dt * 8, 0, 1);
   }
 
   dispose() {

@@ -71,7 +71,7 @@ export const GAMES = Object.freeze([
     fillTo: 6,
     how: [
       'Each of eight rounds loops a three-second hook from a real song, warped: nightcore, chopped and screwed, underwater, or reversed. Pick the title from four with a click or 1 to 4.',
-      'Faster is richer: 1,000 points at the drop, 500 by eight seconds. Then the warp lifts for four seconds of overtime, worth 350 to 150. Right answers in a row multiply: ×1.2, ×1.5, ×2.',
+      'Faster is richer: 1,000 points at the drop, 500 by eleven seconds. Then the warp lifts for five seconds of overtime, worth 350 to 150. You can change your answer until the clock runs out, but your time is when you last picked. Right answers in a row multiply: ×1.2, ×1.5, ×2.',
       'Points are ammunition. Once a round, throw a dubplate at a rival or the leader: Underwater (300) muffles their sound, Scratch (450) scrambles their buttons, Shockwave (600) flips their loop and their card. Z, X and C, and T to change target.',
       'The last round is the dubplate special: clean audio, double points, and a wrong answer costs 250. Pick a crate of music on the title screen or in the lobby.',
     ],
