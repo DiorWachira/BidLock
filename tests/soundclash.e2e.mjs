@@ -346,6 +346,53 @@ try {
     await ctx.close();
   }
 
+  // ---------- 4b. A slow link: 150 ms each way between host and guest
+  {
+    const ctx = await context(browser);
+    const q = `${Q}&net=local&lag=150&seed=9&music=offline`;
+    const { page: host, errors: hostErrors } = await page(ctx, q);
+    const { page: guest, errors: guestErrors } = await page(ctx, q);
+    await host.locator('.channel[data-game="soundclash"]').click();
+    await host.locator('#btn-friends').click();
+    await host.locator('#lobby-name').fill('Alpha');
+    await host.locator('#lobby-create').click();
+    await host.waitForFunction(() => window.__bidlock.lobby.state.status === 'open');
+    const code = await host.evaluate(() => window.__bidlock.lobby.state.code);
+    await guest.locator('#btn-friends').click();
+    await guest.locator('#lobby-name').fill('Slowpoke');
+    await guest.locator('#lobby-code').fill(code);
+    await guest.locator('#lobby-join').click();
+    await guest.waitForFunction(() => window.__bidlock.lobby.state.status === 'open' && window.__bidlock.lobby.state.players.length === 2, null, { timeout: 15000 });
+    await host.waitForSelector('#lobby-players .lp-link', { timeout: 8000 });
+    const shown = await host.locator('#lobby-players .lp-link').textContent();
+    ok('the host sees the guest\'s round trip in the lobby', /^\d+ ms$/.test(shown) && Number.parseInt(shown, 10) >= 280 && Number.parseInt(shown, 10) < 450, shown);
+    ok('a slow link is flagged', (await host.locator('#lobby-players .lp-link').getAttribute('data-q')) === 'slow');
+    await guest.waitForFunction(() => /ms/.test(document.querySelector('#roomchip').textContent), null, { timeout: 5000 });
+    ok('the guest sees its own link in the room chip', (await guest.locator('#roomchip').getAttribute('data-slow')) === '1');
+    await host.locator('#lobby-players').scrollIntoViewIfNeeded();
+    await host.waitForTimeout(300);
+    await shot(host, 'lobby-link');
+    await host.locator('#lobby-start').click();
+    await guest.waitForFunction(() => window.__bidlock.arcade && window.__bidlock.arcade.engine.phase === 'PLAY' && window.__bidlock.arcade.engine.elapsed > 2, null, { timeout: 30000 });
+    // The two clocks agree, though every tick is 150 ms old when it lands.
+    const drift = [];
+    for (let i = 0; i < 6; i++) {
+      const [h, g] = await Promise.all([host.evaluate(() => window.__bidlock.arcade.engine.t), guest.evaluate(() => window.__bidlock.arcade.engine.t)]);
+      drift.push(Math.abs(h - g));
+      await host.waitForTimeout(250);
+    }
+    const worst = Math.max(...drift);
+    ok('the guest\'s clock keeps step with the host\'s despite the delay', worst < 0.2, drift.map((d) => d.toFixed(2)).join(' '));
+    // The guest answers; the host times it from when it was pressed, not when it landed.
+    const pressedAt = await guest.evaluate(() => { const g = window.__bidlock.arcade; const at = g.engine.elapsed; g.pick(0); return at; });
+    await host.waitForFunction(() => window.__bidlock.arcade.engine.players[1].locked, null, { timeout: 5000 });
+    const recorded = await host.evaluate(() => window.__bidlock.arcade.engine.players[1].at);
+    ok('the guest\'s answer is timed from the press, not the arrival', Math.abs(recorded - pressedAt) < 0.12, `pressed ${pressedAt.toFixed(2)} s, recorded ${recorded.toFixed(2)} s`);
+    ok('no console errors on a slow link (host)', hostErrors.length === 0, hostErrors.join(' | '));
+    ok('no console errors on a slow link (guest)', guestErrors.length === 0, guestErrors.join(' | '));
+    await ctx.close();
+  }
+
   // ---------- 5. Phone
   {
     const ctx = await context(browser, { viewport: { width: 390, height: 844 }, mobile: true });

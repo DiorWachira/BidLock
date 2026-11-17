@@ -15,7 +15,7 @@
 import { PERSONAS } from '../engine/aiBidders.js';
 import { GAMES, gameById } from '../arcade/games.js';
 import { botSeats } from '../arcade/bots.js';
-import { iceServers, hasRelay } from './iceServers.js';
+import { iceServers, hasRelay, loadIceServers } from './iceServers.js';
 
 export const WIRE = Object.freeze({
   // host -> players
@@ -42,6 +42,9 @@ export const WIRE = Object.freeze({
   EMOTE: 'EMOTE',
   BYE: 'BYE',
   VOTE: 'VOTE',
+  // the link: the host pings, players answer, so everyone's delay is known
+  PING: 'PI',
+  PONG: 'PO',
   // the quiz games: one generic envelope each way
   GAME_EVENT: 'G',
   GAME_TICK: 'GT',
@@ -68,6 +71,11 @@ export const EMOTES = Object.freeze(['NICE ONE', 'OUCH', 'HA!', 'MINE', 'NO WAY'
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I, O, 0 or 1
 const PEER_PREFIX = 'bidlock-room-v2-';
+const PING_MS = 2000;
+const RTT_WINDOW = 6; // round trips remembered per player
+const DELTA_FULL = 25; // a full snapshot every this many events
+const MAX_COMP = 0.3; // seconds: the most lag the host will make up for
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const PEER_CDNS = ['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/+esm', 'https://esm.sh/peerjs@1.5.4'];
 
 export function makeRoomCode(rng = Math.random) {
@@ -163,7 +171,7 @@ function loadPeer() {
 }
 
 // Start the download early (when the lobby opens), so joining does not wait for it.
-export function warmPeer() { loadPeer().catch(() => {}); }
+export function warmPeer() { loadPeer().catch(() => {}); loadIceServers().catch(() => {}); }
 
 class PeerTransport {
   constructor() { this.peer = null; this.Peer = null; this.onVisible = null; }
@@ -189,6 +197,7 @@ class PeerTransport {
 
   async host(code, onConnection) {
     const Peer = await this._load();
+    await loadIceServers();
     return withTimeout(new Promise((resolve, reject) => {
       const peer = new Peer(PEER_PREFIX + code.toLowerCase(), this._options());
       this.peer = peer;
@@ -213,6 +222,7 @@ class PeerTransport {
   // onProgress(attempt, of, why) is called before every retry.
   async join(code, { onProgress = () => {} } = {}) {
     const Peer = await this._load();
+    await loadIceServers();
     const target = PEER_PREFIX + code.toLowerCase();
     // One identity for the whole join, registered once with the signalling server.
     const peer = new Peer(this._options());
@@ -275,7 +285,15 @@ class PeerTransport {
 // Same-browser loopback over BroadcastChannel: tabs on one machine can share a room
 // with no network at all. Used by the tests and handy for trying a room on your own.
 class LocalTransport {
-  constructor() { this.channel = null; this.conns = new Map(); this.id = `p${Math.random().toString(36).slice(2, 9)}`; }
+  constructor({ lag = 0 } = {}) { this.channel = null; this.conns = new Map(); this.id = `p${Math.random().toString(36).slice(2, 9)}`; this.lag = lag; }
+
+  // Every message is held back by `lag` ms when simulating a slow link.
+  _post(m) {
+    if (!this.channel) return;
+    if (!this.lag) { this.channel.postMessage(m); return; }
+    const ch = this.channel;
+    setTimeout(() => { try { ch.postMessage(m); } catch { /* closed */ } }, this.lag);
+  }
 
   _open(code) {
     this.channel = new BroadcastChannel(`${PEER_PREFIX}${code.toLowerCase()}`);
@@ -284,7 +302,7 @@ class LocalTransport {
   _conn(remote) {
     const c = {
       id: remote, onData: null, onClose: null, closed: false,
-      send: (o) => { if (!c.closed && this.channel) this.channel.postMessage({ to: remote, from: this.id, kind: 'data', body: o }); },
+      send: (o) => { if (!c.closed && this.channel) this._post({ to: remote, from: this.id, kind: 'data', body: o }); },
       close: () => { if (!c.closed && this.channel) this.channel.postMessage({ to: remote, from: this.id, kind: 'close' }); c.closed = true; this.conns.delete(remote); },
     };
     this.conns.set(remote, c);
@@ -335,8 +353,18 @@ class LocalTransport {
 // ---------- the lobby ----------
 export class LobbyManager {
   // transport: 'peer' (WebRTC) or 'local' (same-browser loopback).
-  constructor({ transport = 'peer', onState = () => {}, onMessage = () => {}, onInput = () => {}, onClosed = () => {} } = {}) {
+  // lag: milliseconds of simulated one-way delay on the local transport (tests).
+  constructor({ transport = 'peer', onState = () => {}, onMessage = () => {}, onInput = () => {}, onClosed = () => {}, lag = 0 } = {}) {
     this.kind = transport;
+    this.simLag = Math.max(0, Number(lag) || 0);
+    this.rtt = new Map(); // host: player id -> smoothed round trip, seconds (shown)
+    this.rttSamples = new Map(); // host: player id -> the last few round trips, seconds
+    this.latency = {}; // everyone: player id -> round trip in ms, as the host measured it
+    this.myRtt = 0; // a player: their own round trip, seconds
+    this.pingTimer = null;
+    this.txKeys = null; // host: the last snapshot sent, key by key, as JSON
+    this.txCount = 0;
+    this.rxKeys = null; // player: the same, as received
     this.onState = onState;
     this.onMessage = onMessage;
     this.onInput = onInput;
@@ -364,7 +392,7 @@ export class LobbyManager {
   }
 
   _newTransport() {
-    return this.kind === 'local' ? new LocalTransport() : new PeerTransport();
+    return this.kind === 'local' ? new LocalTransport({ lag: this.simLag }) : new PeerTransport();
   }
 
   _uniqueName(name, exceptPid = null) {
@@ -388,6 +416,7 @@ export class LobbyManager {
         await transport.host(code, (conn) => this._onPlayerConnection(conn));
         this.transport = transport;
         this._set({ status: 'open', code, you: 'host', players: [{ pid: 'host', name: cleanName(name, 'HOST'), host: true, seat: 0, away: false }] });
+        this._startPings();
         return code;
       } catch (err) {
         transport.close();
@@ -409,6 +438,7 @@ export class LobbyManager {
 
   _fromPlayer(conn, msg) {
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
+    if (msg.t === WIRE.PONG) { this._pong(conn.id, msg); return; }
     const known = this.state.players.find((p) => p.pid === conn.id);
     if (msg.t === WIRE.HELLO) {
       if (known) return;
@@ -432,6 +462,8 @@ export class LobbyManager {
     if (!p) return;
     const conn = this.conns.get(pid);
     this.conns.delete(pid);
+    this.rtt.delete(pid);
+    this.rttSamples.delete(pid);
     if (conn && !conn.closed) conn.close();
     if (this.state.inMatch) {
       // Their seat stays in the match and stops acting.
@@ -511,6 +543,8 @@ export class LobbyManager {
   // Host: lock the room and tell every player which seat is theirs.
   beginMatch(extra = {}) {
     if (!this.isHost) return null;
+    this.txKeys = null;
+    this.txCount = 0;
     const seats = this.seats();
     const players = this.state.players.filter((p) => !p.away).map((p, i) => ({ ...p, seat: i }));
     this._set({ players, inMatch: true });
@@ -531,7 +565,121 @@ export class LobbyManager {
 
   broadcast(msg) {
     if (!this.isHost) return;
-    for (const conn of this.conns.values()) conn.send(msg);
+    const out = msg && msg.s ? this._delta(msg) : msg;
+    for (const conn of this.conns.values()) conn.send(out);
+  }
+
+  // ---------- snapshots: send only what changed ----------
+  // A snapshot rides on every event so a player's mirror can be rebuilt. Most of it (the
+  // lineups, the catalogue, the question) does not change from one event to the next,
+  // so after the first one only the top-level keys that changed are sent, with a full
+  // snapshot every DELTA_FULL events in case anything went astray.
+  _delta(msg) {
+    const s = msg.s;
+    this.txCount++;
+    if (!this.txKeys || this.txCount % DELTA_FULL === 0) {
+      this.txKeys = {};
+      for (const k of Object.keys(s)) this.txKeys[k] = JSON.stringify(s[k]);
+      return { ...msg, sq: this.txCount };
+    }
+    const sd = {};
+    const sx = [];
+    for (const k of Object.keys(s)) {
+      const j = JSON.stringify(s[k]);
+      if (j !== this.txKeys[k]) { sd[k] = s[k]; this.txKeys[k] = j; }
+    }
+    for (const k of Object.keys(this.txKeys)) if (!(k in s)) { sx.push(k); delete this.txKeys[k]; }
+    const out = { ...msg, sd, sq: this.txCount };
+    delete out.s;
+    if (sx.length) out.sx = sx;
+    return out;
+  }
+
+  // A player: turn a delta back into a whole snapshot (fresh objects every time).
+  _rebuild(msg) {
+    if (msg.s) {
+      this.rxKeys = {};
+      for (const k of Object.keys(msg.s)) this.rxKeys[k] = JSON.stringify(msg.s[k]);
+      return true;
+    }
+    if (!this.rxKeys) return false; // joined mid-stream: wait for the next full one
+    for (const k of Object.keys(msg.sd)) this.rxKeys[k] = JSON.stringify(msg.sd[k]);
+    for (const k of msg.sx || []) delete this.rxKeys[k];
+    const s = {};
+    for (const k of Object.keys(this.rxKeys)) s[k] = k in msg.sd ? msg.sd[k] : JSON.parse(this.rxKeys[k]);
+    msg.s = s;
+    delete msg.sd;
+    delete msg.sx;
+    return true;
+  }
+
+  // ---------- the link ----------
+  _startPings() {
+    this._stopPings();
+    this.pingTimer = setInterval(() => this._ping(), PING_MS);
+  }
+
+  _stopPings() {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = null;
+  }
+
+  _ping() {
+    if (!this.isHost) { this._stopPings(); return; }
+    const lat = {};
+    for (const [pid, r] of this.rtt) lat[pid] = Math.round(r * 1000);
+    this.latency = lat;
+    const ts = now();
+    for (const [pid, conn] of this.conns) {
+      const r = this._rttFloor(pid);
+      conn.send({ t: WIRE.PING, ts, r: r == null ? null : Math.round(r * 1000), lat });
+    }
+    if (!this.state.inMatch) this.onState(this.state);
+  }
+
+  _pong(pid, msg) {
+    if (!Number.isFinite(msg.ts)) return;
+    const sample = Math.max(0, (now() - msg.ts) / 1000);
+    if (sample > 10) return;
+    const prev = this.rtt.get(pid);
+    // Smoothed for display, but quick to notice a link getting worse.
+    this.rtt.set(pid, prev == null ? sample : sample > prev ? prev * 0.5 + sample * 0.5 : prev * 0.8 + sample * 0.2);
+    const list = this.rttSamples.get(pid) || [];
+    list.push(sample);
+    if (list.length > RTT_WINDOW) list.shift();
+    this.rttSamples.set(pid, list);
+  }
+
+  // The best recent round trip. A busy page only ever adds delay to a ping, so the
+  // quickest of the last few is the truest measure of the link itself (as in NTP).
+  _rttFloor(pid) {
+    const list = this.rttSamples.get(pid);
+    return list && list.length ? Math.min(...list) : null;
+  }
+
+  // Host: how late a player's inputs arrive (one way), capped so it cannot be abused.
+  lagFor(seat) {
+    if (!this.isHost) return 0;
+    const p = this.state.players.find((x) => x.seat === seat && !x.host);
+    const r = p ? this._rttFloor(p.pid) : null;
+    return r == null ? 0 : Math.min(MAX_COMP, r / 2);
+  }
+
+  // Host: the slowest connected player's one-way delay (for deadlines everyone shares).
+  maxLag() {
+    if (!this.isHost) return 0;
+    let m = 0;
+    for (const p of this.state.players) if (!p.host && !p.away) m = Math.max(m, this.lagFor(p.seat));
+    return m;
+  }
+
+  // A player: how stale the host's messages are when they arrive (one way).
+  get oneWay() { return this.isClient ? Math.min(0.5, this.myRtt / 2) : 0; }
+
+  // Round trip in ms for a player id, or null if not measured yet.
+  latencyMs(pid) {
+    const v = this.latency[pid];
+    return Number.isFinite(v) ? v : null;
   }
 
   // ---------- joining ----------
@@ -575,6 +723,14 @@ export class LobbyManager {
 
   _fromHost(msg) {
     if (!msg || typeof msg !== 'object') return;
+    if (msg.t === WIRE.PING) {
+      if (this.hostConn) this.hostConn.send({ t: WIRE.PONG, ts: msg.ts });
+      if (Number.isFinite(msg.r)) this.myRtt = msg.r / 1000;
+      if (msg.lat && typeof msg.lat === 'object') { this.latency = msg.lat; if (!this.state.inMatch) this.onState(this.state); }
+      return;
+    }
+    if (msg.t === WIRE.START) this.rxKeys = null;
+    if (msg.s || msg.sd) { if (!this._rebuild(msg)) return; }
     if (msg.t === WIRE.REJECT) {
       if (this._joinWait) this._joinWait.reject(new Error(msg.why || 'The host turned the request down.'));
       return;
@@ -594,6 +750,13 @@ export class LobbyManager {
 
   // ---------- leaving ----------
   leave(silent = false) {
+    this._stopPings();
+    this.rtt.clear();
+    this.rttSamples.clear();
+    this.latency = {};
+    this.myRtt = 0;
+    this.txKeys = null;
+    this.rxKeys = null;
     if (this.isClient && this.hostConn && !this.hostConn.closed) {
       try { this.hostConn.send({ t: WIRE.BYE }); } catch { /* already gone */ }
     }

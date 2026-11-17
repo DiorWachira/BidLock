@@ -1248,3 +1248,10 @@ a.sc-store:hover { text-decoration: underline; }
   .sc-view[data-water="1"] { filter: saturate(0.6) hue-rotate(160deg); }
   .sc-cardface { transition: none; }
 }
+
+/* ---------- the link: round-trip times in the lobby and the room chip ---------- */
+.lp-link { margin-left: auto; font: 600 11px/1 var(--mono); letter-spacing: 0.04em; padding: 3px 5px; border: 1px solid var(--rule); color: var(--ink-2); }
+.lp-link[data-q="good"] { border-color: #46e07a; color: #46e07a; }
+.lp-link[data-q="ok"] { border-color: #ffb52e; color: #ffb52e; }
+.lp-link[data-q="slow"] { border-color: #ff3b2a; color: #ff3b2a; }
+#roomchip[data-slow="1"] { border-color: #ffb52e; color: #ffb52e; }
