@@ -8,8 +8,9 @@ import {
 } from '../js/games/sampleArena/sampleArenaEngine.js';
 import {
   GENRES, GENRE_CHOICES, genreById, cleanTitle, parseResults, buildRounds, offlineRounds, planSearches, loadMatch, ROUND_COUNT,
-  LEVELS, levelById, isHit, hitsFor, SIDE_ROUNDS,
+  LEVELS, levelById, isHit, hitsFor, findSong, songTrack, animeRivals, series,
 } from '../js/games/sampleArena/itunesLoader.js';
+import { ANIME_SONGS } from '../js/games/sampleArena/animeSongs.js';
 import { HITS } from '../js/games/sampleArena/hits.js';
 import { EASY_WARPS } from '../js/games/sampleArena/sampleArenaEngine.js';
 import { SYNTH_TUNES, renderTune } from '../js/games/sampleArena/synthTunes.js';
@@ -42,7 +43,7 @@ test('the crates: six genres and the shuffle', () => {
   assert.equal(GENRES.length, 6);
   assert.equal(GENRE_CHOICES[0].id, 'all');
   assert.equal(genreById('nope').id, 'all');
-  for (const g of GENRES) assert.ok(g.terms.length >= 12 && g.name && g.short, g.id);
+  for (const g of GENRES) assert.ok((g.terms.length >= 12 || (g.songs && g.songs.length >= 40)) && g.name && g.short, g.id);
   const rng = mulberry32(3);
   assert.equal(planSearches('all', rng).length, 4);
   const plan = planSearches('rock', rng);
@@ -324,36 +325,60 @@ test('hits and difficulty: famous songs on easy and normal, deep cuts on hard', 
   assert.equal(e.options.level, 'easy');
 });
 
-test('the anime crate leans anime: games and memes are a side dish', () => {
+test('the anime crate: famous openings and endings, with the anime in brackets', async () => {
   const anime = GENRES.find((g) => g.id === 'anime');
-  const core = anime.terms.filter((t) => !anime.side.includes(t));
-  assert.ok(core.length >= 12 && anime.side.length >= 5);
-  let sideMatches = 0;
-  for (let seed = 1; seed <= 400; seed++) {
-    const plan = planSearches('anime', mulberry32(seed));
-    assert.equal(plan.length, 3);
-    assert.equal(new Set(plan.map((p) => p.term)).size, 3);
-    const sides = plan.filter((p) => p.side).length;
-    assert.ok(sides <= 1, 'never more than one game or meme artist');
-    assert.ok(plan.filter((p) => core.includes(p.term)).length >= 2, 'always at least two anime artists');
-    sideMatches += sides;
+  assert.equal(anime.name, 'Anime Openings & Endings');
+  assert.ok(ANIME_SONGS.length >= 40, `${ANIME_SONGS.length} songs`);
+  assert.equal(new Set(ANIME_SONGS.map((s) => s.title.toLowerCase())).size, ANIME_SONGS.length, 'no song twice');
+  for (const s of ANIME_SONGS) assert.ok(s.title && s.artist && s.anime && ['OP', 'ED', 'Film'].includes(s.kind), JSON.stringify(s));
+  assert.ok(new Set(ANIME_SONGS.map((s) => s.anime.replace(/:.*/, ''))).size >= 25, 'many different anime');
+  // A match searches eleven named songs: eight to ask about and three spares.
+  const plan = planSearches('anime', mulberry32(3));
+  assert.equal(plan.length, ROUND_COUNT + 3);
+  assert.ok(plan.every((p) => p.song && p.term === `${p.song.artist} ${p.song.title}`));
+  // Finding a song: the right artist and title, with a preview; covers do not count.
+  const song = ANIME_SONGS.find((s) => s.title === 'Gurenge');
+  const data = { results: [
+    { kind: 'song', trackName: 'Gurenge (Cover)', artistName: 'Some Cover Band', previewUrl: 'x', artworkUrl100: 'y' },
+    { kind: 'song', trackName: 'Gurenge', artistName: 'LiSA', previewUrl: 'https://p/1.m4a', artworkUrl100: 'https://a/100x100bb.jpg', trackViewUrl: 'https://m/1', trackId: 7 },
+  ] };
+  const t = findSong(data, song);
+  assert.equal(t.title, 'Gurenge (Demon Slayer)', 'the anime in brackets');
+  assert.equal(t.artist, 'LiSA');
+  assert.ok(t.art.endsWith('400x400bb.jpg') && t.url === 'https://p/1.m4a');
+  assert.equal(findSong({ results: data.results.slice(0, 1) }, song), null);
+  // Rivals by level: easy other anime and artists, hard the same anime first.
+  const titan = ANIME_SONGS.filter((s) => s.anime === 'Attack on Titan');
+  assert.equal(series('Jujutsu Kaisen 0'), series('Jujutsu Kaisen'));
+  assert.equal(series('Demon Slayer: Mugen Train'), series('Demon Slayer'));
+  assert.ok(titan.length >= 3, 'enough Titan songs for a hard round');
+  const target = songTrack(titan[0], { url: 'u', art: 'a', link: '' });
+  for (let seed = 1; seed <= 30; seed++) {
+    const easy = animeRivals(target, mulberry32(seed), 'easy');
+    assert.equal(easy.length, 3);
+    assert.ok(easy.every((o) => !o.title.includes('(Attack on Titan)') && o.artist !== target.artist));
+    const hard = animeRivals(target, mulberry32(seed), 'hard');
+    assert.ok(hard.every((o) => o.title.includes('(Attack on Titan)')), 'hard: other Titan songs');
+    assert.ok(!hard.some((o) => o.title === target.title));
   }
-  assert.ok(sideMatches > 60 && sideMatches < 140, `a side artist in ${sideMatches} of 400 matches`);
-  // The shuffle only ever takes anime artists from this crate.
-  for (let seed = 1; seed <= 100; seed++) for (const p of planSearches('all', mulberry32(seed))) assert.ok(!p.side);
-  // Rounds: at most SIDE_ROUNDS from the side artist, spread through the match.
-  const pool = [];
-  for (const [artist, side] of [['Anime A', false], ['Anime B', false], ['Meme C', true]]) {
-    for (let i = 0; i < 12; i++) pool.push({ id: `${artist}${i}`, title: `${artist} Song ${i}`, artist, url: 'u', art: 'a', link: '', pop: 1 - i / 12, hit: i < 6, side, synth: null, genre: 'anime' });
+  // A whole match from fake searches: eight rounds, rivals from the catalogue, anime in every title.
+  const fetchImpl = async (url) => {
+    const term = decodeURIComponent(/term=([^&]+)/.exec(url)[1]);
+    const s = ANIME_SONGS.find((x) => `${x.artist} ${x.title}` === term);
+    return { ok: true, json: async () => ({ results: [{ kind: 'song', trackName: s.title, artistName: s.artist, previewUrl: `https://p/${encodeURIComponent(s.title)}.m4a`, artworkUrl100: 'https://a/100x100bb.jpg', trackViewUrl: 'https://m', trackId: s.title.length }] }) };
+  };
+  const m = await loadMatch({ genre: 'anime', level: 'normal', rng: mulberry32(9), fetchImpl });
+  assert.equal(m.source, 'itunes');
+  assert.equal(m.rounds.length, ROUND_COUNT);
+  for (const r of m.rounds) {
+    assert.equal(r.options.length, 4);
+    assert.ok(r.options.every((o) => /\(.+\)$/.test(o.title)), 'every option names its anime');
+    assert.equal(r.options[r.correct].title, r.target.title);
+    assert.equal(new Set(r.options.map((o) => o.title)).size, 4);
   }
-  const positions = new Set();
-  for (let seed = 1; seed <= 60; seed++) {
-    for (const level of ['easy', 'normal', 'hard']) {
-      const rounds = buildRounds(pool, mulberry32(seed), ROUND_COUNT, { level });
-      const side = rounds.filter((r) => r.target.side);
-      assert.ok(side.length <= SIDE_ROUNDS, `${level}: ${side.length} side rounds`);
-      if (level !== 'hard') rounds.forEach((r, i) => { if (r.target.side) positions.add(i); });
-    }
-  }
-  assert.ok(positions.size >= 6, `side rounds turn up anywhere in the match (${[...positions].join(',')})`);
+  // Too few songs found (the store is down for them): the offline crate takes over.
+  const none = await loadMatch({ genre: 'anime', rng: mulberry32(9), fetchImpl: async () => ({ ok: true, json: async () => ({ results: [] }) }) });
+  assert.equal(none.source, 'offline');
+  // The shuffle asks for one anime song at most.
+  for (let seed = 1; seed <= 50; seed++) assert.ok(planSearches('all', mulberry32(seed)).filter((p) => p.song).length <= 1);
 });

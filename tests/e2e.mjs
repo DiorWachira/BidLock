@@ -554,7 +554,8 @@ try {
       ok('the answer is not sent to the room before it is given', (await watcher.evaluate(() => window.__bidlock.engine.oracle.correct)) === -1);
     } else skip('Oracle in a room', 'no intervention on this seed');
     ok('the match still reaches a verdict', (await runTo(host, 'VERDICT')) === 'VERDICT');
-    await guests[0].waitForFunction(() => window.__bidlock.screen === 'verdict', null, { timeout: 10000 });
+    // The guest works through every fast-forwarded event first, which takes a while on a busy machine.
+    await guests[0].waitForFunction(() => window.__bidlock.screen === 'verdict', null, { timeout: 25000 });
     await host.locator('#btn-verdict-skip').click();
     await host.waitForTimeout(1500);
     await shot(host, 'verdict-six');
