@@ -48,6 +48,11 @@ A fourth game: name the song from a warped three-second loop of a real iTunes pr
 - The browser tests use Playwright's headless shell first: it opens no OS windows and still uses the real GPU. Edge and Chrome are fallbacks; headless Edge and Chrome leave hidden windows that can show in Alt+Tab.
 - `node tools/serve.mjs`, then open `http://localhost:5173` to play. Debug parameters: `?trivia=local`, `?media=off`, `?speed=4`, `?seed=1`, `?auto=1`, `?net=local`. For Soundclash, `?music=offline` forces the synth tunes.
 
+## Rooms and networks
+
+- Six players in one room work: tested over real PeerJS with a host and five guests, including a host who drops off the signalling server for 9 s while someone joins (the guest retries and gets in).
+- There is no TURN relay. PeerJS's free TURN servers (`eu-0`/`us-0.turn.peerjs.com`) no longer exist in DNS, and Open Relay (`openrelay.metered.ca`) resolves to a blocked address. Players behind strict NATs (often mobile data) cannot join until a relay is added in `js/net/iceServers.js`. That needs an account with a TURN provider, which is the owner's call.
+
 ## Not verified yet
 
 - Nobody has listened to the sound in the arcade games.

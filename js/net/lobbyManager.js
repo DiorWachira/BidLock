@@ -15,6 +15,7 @@
 import { PERSONAS } from '../engine/aiBidders.js';
 import { GAMES, gameById } from '../arcade/games.js';
 import { botSeats } from '../arcade/bots.js';
+import { iceServers, hasRelay } from './iceServers.js';
 
 export const WIRE = Object.freeze({
   // host -> players
@@ -132,21 +133,49 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// WebRTC through PeerJS. Loaded from a CDN only when somebody opens the lobby.
+// WebRTC through PeerJS. Loaded from a CDN when somebody opens the lobby.
+//
+// Joining is the fragile part, so it is patient: each attempt gets JOIN_ATTEMPT_MS, and
+// a guest keeps trying for JOIN_ATTEMPTS attempts. That covers a host who has switched
+// to a messaging app to send the code (their page is paused until they come back), a
+// slow mobile line, and the signalling server's own hiccups.
+const LOAD_MS = 20000;
+const JOIN_ATTEMPT_MS = 12000;
+const JOIN_ATTEMPTS = 4;
+let peerModule = null; // one download per page, shared by every transport
+
+function loadPeer() {
+  if (!peerModule) {
+    peerModule = (async () => {
+      let last = null;
+      for (const url of PEER_CDNS) {
+        try {
+          const mod = await import(/* @vite-ignore */ url);
+          const Peer = mod.Peer || (mod.default && mod.default.Peer) || mod.default;
+          if (typeof Peer === 'function') return Peer;
+        } catch (err) { last = err; }
+      }
+      throw new Error(`Could not load the multiplayer library${last ? ` (${last.message})` : ''}. Check your connection.`);
+    })();
+    peerModule.catch(() => { peerModule = null; }); // allow a retry later
+  }
+  return peerModule;
+}
+
+// Start the download early (when the lobby opens), so joining does not wait for it.
+export function warmPeer() { loadPeer().catch(() => {}); }
+
 class PeerTransport {
-  constructor() { this.peer = null; this.Peer = null; }
+  constructor() { this.peer = null; this.Peer = null; this.onVisible = null; }
 
   async _load() {
     if (this.Peer) return this.Peer;
-    let last = null;
-    for (const url of PEER_CDNS) {
-      try {
-        const mod = await import(/* @vite-ignore */ url);
-        const Peer = mod.Peer || (mod.default && mod.default.Peer) || mod.default;
-        if (typeof Peer === 'function') { this.Peer = Peer; return Peer; }
-      } catch (err) { last = err; }
-    }
-    throw new Error(`Could not load the multiplayer library${last ? ` (${last.message})` : ''}. Check your connection.`);
+    this.Peer = await withTimeout(loadPeer(), LOAD_MS, 'The multiplayer library did not load. Check your connection and try again.');
+    return this.Peer;
+  }
+
+  _options() {
+    return { config: { iceServers: iceServers() }, debug: 0 };
   }
 
   _wrap(conn) {
@@ -161,35 +190,83 @@ class PeerTransport {
   async host(code, onConnection) {
     const Peer = await this._load();
     return withTimeout(new Promise((resolve, reject) => {
-      const peer = new Peer(PEER_PREFIX + code.toLowerCase());
+      const peer = new Peer(PEER_PREFIX + code.toLowerCase(), this._options());
       this.peer = peer;
       peer.on('open', () => resolve());
       peer.on('connection', (conn) => { conn.on('open', () => onConnection(this._wrap(conn))); });
-      peer.on('disconnected', () => { try { if (!peer.destroyed) peer.reconnect(); } catch { /* nothing to do */ } });
+      // The host must stay registered with the signalling server, or nobody can join.
+      // Phones drop that socket when the page is in the background; reconnect as soon
+      // as it is back, and again whenever it drops.
+      const wake = () => { try { if (!peer.destroyed && peer.disconnected) peer.reconnect(); } catch { /* try again later */ } };
+      peer.on('disconnected', () => setTimeout(wake, 800));
+      this.onVisible = () => { if (document.visibilityState === 'visible') wake(); };
+      document.addEventListener('visibilitychange', this.onVisible);
+      window.addEventListener('online', this.onVisible);
       peer.on('error', (err) => {
+        if (peer.open) return; // a joiner's failure, or a blip: the room stays up
         const e = new Error(err && err.type === 'unavailable-id' ? 'taken' : `Could not open a room (${err && err.type ? err.type : 'network'}).`);
         reject(e);
       });
-    }), 15000, 'The room server did not answer. Try again in a moment.');
+    }), 20000, 'The room server did not answer. Try again in a moment.');
   }
 
-  async join(code) {
+  // onProgress(attempt, of, why) is called before every retry.
+  async join(code, { onProgress = () => {} } = {}) {
     const Peer = await this._load();
-    return withTimeout(new Promise((resolve, reject) => {
-      const peer = new Peer();
-      this.peer = peer;
-      peer.on('open', () => {
-        const conn = peer.connect(PEER_PREFIX + code.toLowerCase(), { reliable: true, serialization: 'json' });
-        conn.on('open', () => resolve(this._wrap(conn)));
-        conn.on('error', () => reject(new Error('Could not reach that room.')));
+    const target = PEER_PREFIX + code.toLowerCase();
+    // One identity for the whole join, registered once with the signalling server.
+    const peer = new Peer(this._options());
+    this.peer = peer;
+    const peerErrors = [];
+    peer.on('error', (err) => peerErrors.push(err && err.type ? err.type : 'network'));
+    await withTimeout(new Promise((resolve, reject) => {
+      if (peer.open) { resolve(); return; }
+      peer.on('open', () => resolve());
+      peer.on('error', (err) => { if (!peer.open && err && err.type !== 'peer-unavailable') reject(new Error(`Could not reach the room server (${err.type || 'network'}).`)); });
+    }), 15000, 'The room server did not answer. Check your connection.');
+
+    let lastWhy = 'timeout';
+    for (let attempt = 1; attempt <= JOIN_ATTEMPTS; attempt++) {
+      if (attempt > 1) onProgress(attempt, JOIN_ATTEMPTS, lastWhy);
+      if (peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch { /* next attempt */ } }
+      peerErrors.length = 0;
+      const result = await new Promise((resolve) => {
+        const conn = peer.connect(target, { reliable: true, serialization: 'json' });
+        let done = false;
+        let watch = null;
+        let timer = null;
+        const finish = (r) => { if (done) return; done = true; clearInterval(watch); clearTimeout(timer); resolve(r); };
+        timer = setTimeout(() => { try { conn.close(); } catch { /* gone */ } finish({ why: 'timeout' }); }, JOIN_ATTEMPT_MS);
+        // Watch the connection: no such room, or a network path that cannot be found.
+        watch = setInterval(() => {
+          if (peerErrors.includes('peer-unavailable')) { try { conn.close(); } catch { /* gone */ } finish({ why: 'no-room' }); return; }
+          const pc = conn.peerConnection;
+          if (pc && (pc.iceConnectionState === 'failed' || pc.connectionState === 'failed')) { try { conn.close(); } catch { /* gone */ } finish({ why: 'ice' }); }
+        }, 250);
+        conn.on('open', () => finish({ conn }));
+        conn.on('error', () => finish({ why: 'error' }));
       });
-      peer.on('error', (err) => {
-        reject(new Error(err && err.type === 'peer-unavailable' ? `No room with the code ${code}. Check it with the host.` : `Could not join (${err && err.type ? err.type : 'network'}).`));
-      });
-    }), 15000, 'Joining timed out. Check the code and your connection.');
+      if (result.conn) return this._wrap(result.conn);
+      lastWhy = result.why;
+      // Give a paused host a moment to come back before the next try.
+      if (attempt < JOIN_ATTEMPTS) await new Promise((r) => setTimeout(r, result.why === 'no-room' ? 2500 : 600));
+    }
+    const relay = hasRelay();
+    if (lastWhy === 'no-room') throw new Error(`No room with the code ${code}. Check it with the host, and make sure they still have BidLock open.`);
+    if (lastWhy === 'ice') {
+      throw new Error(relay
+        ? "Your network and the host's could not connect, even through the relay. Try another network (for example Wi-Fi instead of mobile data)."
+        : "Your network and the host's could not connect directly. This happens on some mobile and work networks: try the host's Wi-Fi, or Wi-Fi instead of mobile data.");
+    }
+    throw new Error('Joining timed out. Check the code, and ask the host to keep BidLock open on their screen while friends join.');
   }
 
   close() {
+    if (this.onVisible) {
+      document.removeEventListener('visibilitychange', this.onVisible);
+      window.removeEventListener('online', this.onVisible);
+      this.onVisible = null;
+    }
     try { if (this.peer) this.peer.destroy(); } catch { /* already gone */ }
     this.peer = null;
   }
@@ -235,7 +312,7 @@ class LocalTransport {
     };
   }
 
-  async join(code) {
+  async join(code, _opts = {}) {
     this._open(code);
     return withTimeout(new Promise((resolve) => {
       this.channel.onmessage = (e) => {
@@ -273,6 +350,9 @@ export class LobbyManager {
   _blank() {
     return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null };
   }
+
+  // Start downloading the multiplayer library before anyone presses a button.
+  warm() { if (this.kind !== 'local') warmPeer(); }
 
   get isHost() { return this.state.role === 'host'; }
   get isClient() { return this.state.role === 'client'; }
@@ -455,7 +535,8 @@ export class LobbyManager {
   }
 
   // ---------- joining ----------
-  async join(name, codeText) {
+  // onProgress(attempt, of, why): a slow join is retrying.
+  async join(name, codeText, { onProgress = () => {} } = {}) {
     const code = normalizeCode(codeText);
     if (!code) {
       const err = new Error('Room codes look like BL-7K9.');
@@ -466,7 +547,7 @@ export class LobbyManager {
     this._set({ ...this._blank(), role: 'client', status: 'connecting', code });
     const transport = this._newTransport();
     try {
-      const conn = await transport.join(code);
+      const conn = await transport.join(code, { onProgress });
       this.transport = transport;
       this.hostConn = conn;
       conn.onData = (msg) => this._fromHost(msg);
@@ -479,7 +560,7 @@ export class LobbyManager {
       await withTimeout(new Promise((resolve, reject) => {
         this._joinWait = { resolve, reject };
         conn.send({ t: WIRE.HELLO, name: cleanName(name) });
-      }), 6000, 'The host did not answer.');
+      }), 10000, 'The host did not answer. Ask them to keep BidLock open on their screen.');
       return code;
     } catch (err) {
       transport.close();
