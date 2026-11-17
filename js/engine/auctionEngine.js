@@ -364,6 +364,7 @@ export class AuctionEngine {
     }
     this._setPhase(PHASE.BIDDING);
     this.clock = RULES.shotClock;
+    this.graceT = 0;
     for (const ai of this.ais) {
       if (this.active.has(ai.me.id)) ai.onLotStart(this._ctx(ai.me));
     }
@@ -474,6 +475,12 @@ export class AuctionEngine {
       if (this.phase !== PHASE.BIDDING) return;
     }
     if (this.clock <= 0) {
+      // In a room the host waits a moment longer before the hammer falls: a guest's
+      // last-second bid is still on its way. bidGrace is the slowest guest's one-way
+      // delay (at most 0.3 s); the clock shows zero meanwhile.
+      this.clock = 0;
+      this.graceT = (this.graceT || 0) + dt;
+      if (this.graceT < (this.bidGrace || 0)) return;
       if (this.highBidder != null) this._sell(this.contenders[this.highBidder], this.currentBid, false);
       else this._noSale('timeout');
     }
@@ -488,6 +495,7 @@ export class AuctionEngine {
     this.currentBid = amount;
     this.highBidder = c.id;
     this.clock = RULES.shotClock;
+    this.graceT = 0;
     this.callStage = 0;
     this.history.push({ by: c.id, amount, inc });
     const ev = { by: c.id, amount, inc, prev, lot: this.lot };

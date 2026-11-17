@@ -47,6 +47,7 @@ const debug = {
   triviaLocal: params.get('trivia') === 'local',
   mediaOff: params.get('media') === 'off',
   netLocal: params.get('net') === 'local',
+  lag: Math.max(0, Math.min(2000, Number(params.get('lag')) || 0)), // ms of simulated delay on ?net=local
   musicOffline: params.get('music') === 'offline',
 };
 
@@ -307,6 +308,7 @@ function heroAttract(dt) {
 // ---------- the room ----------
 const lobby = new LobbyManager({
   transport: debug.netLocal ? 'local' : 'peer',
+  lag: debug.lag,
   onState: (state) => {
     // A new room starts with this device's Soundclash crate.
     if (state.role === 'host' && state.status === 'open' && !state.genre) { lobby.setGenre(settings.genre); return; }
@@ -314,7 +316,7 @@ const lobby = new LobbyManager({
     const chip = $('#roomchip');
     const open = state.status === 'open' && state.role != null;
     chip.hidden = !open;
-    if (open) chip.textContent = `ROOM ${state.code} · ${state.players.filter((p) => !p.away).length}`;
+    if (open) renderRoomChip();
   },
   onMessage: (msg) => fromHost(msg),
   onInput: (seat, msg) => fromPlayer(seat, msg),
@@ -364,6 +366,20 @@ function fromPlayer(seat, msg) {
   }
 }
 
+// The room chip in the top bar: the code, how many are in, and for a guest how quick
+// the link to the host is. A slow link turns the chip amber.
+function renderRoomChip() {
+  const chip = $('#roomchip');
+  const state = lobby.state;
+  if (!chip || state.status !== 'open' || state.role == null) return;
+  const n = state.players.filter((p) => !p.away).length;
+  const ms = lobby.isClient ? (lobby.latencyMs(state.you) ?? (lobby.myRtt ? Math.round(lobby.myRtt * 1000) : null)) : null;
+  chip.textContent = `ROOM ${state.code} · ${n}${ms ? ` · ${ms} ms` : ''}`;
+  chip.dataset.slow = ms != null && ms >= 250 ? '1' : '0';
+  chip.title = ms ? `Round trip to the host: ${ms} ms. The host makes up for delays up to 300 ms each way.` : '';
+}
+setInterval(renderRoomChip, 2000);
+
 // Client: something from the host.
 function fromHost(msg) {
   if (msg.t === WIRE.START && msg.game && msg.game !== 'bidlock') {
@@ -395,14 +411,24 @@ function fromHost(msg) {
   if (role !== 'client') return;
   if (msg.t === WIRE.TIMER_TICK) {
     if (engine.mirror && inMatch()) {
-      engine.clock = msg.ck;
-      engine.phaseT = msg.pt;
-      engine.oracle.t = msg.ot;
+      // Each tick is one network delay old: correct for it, and ease small drifts in.
+      const ow = lobby.oneWay;
+      const ease = (cur, v) => { const target = Math.max(0, v - ow); return Math.abs(target - cur) > 0.35 ? target : cur + (target - cur) * 0.5; };
+      engine.clock = ease(engine.clock, msg.ck);
+      engine.phaseT = ease(engine.phaseT, msg.pt);
+      engine.oracle.t = ease(engine.oracle.t, msg.ot);
     }
     return;
   }
   if (!msg.ev || !msg.s) return;
   engine.hydrate(msg.s, mySeat);
+  {
+    const ow = lobby.oneWay;
+    if (ow > 0) {
+      if (engine.clock > 0) engine.clock = Math.max(0, engine.clock - ow);
+      if (engine.phaseT > 0) engine.phaseT = Math.max(0, engine.phaseT - ow);
+    }
+  }
   engine.emit(msg.ev, unpackEvent(engine, msg.ev, msg.d));
 }
 
@@ -462,6 +488,9 @@ const shell = {
   toast: (t) => hud.toast(t),
   again: () => arcadeAgain(),
   exit: () => arcadeExit(),
+  // The link: how late a seat's inputs arrive (host), how stale the host's news is (guest).
+  lagFor: (seat) => lobby.lagFor(seat),
+  oneWay: () => lobby.oneWay,
   // Soundclash's crate: the room's in a room, this device's otherwise.
   genre: () => (role === 'host' && lobby.state.genre ? lobby.state.genre : settings.genre),
 };
@@ -1243,6 +1272,8 @@ function advance(now) {
     }
     if (n === 90) acc = 0;
     if (role === 'host') {
+      // Hold the hammer for the slowest guest's delay, so a bid made in time counts.
+      engine.bidGrace = lobby.maxLag();
       tickAcc += dt;
       if (tickAcc >= 0.25) {
         tickAcc = 0;

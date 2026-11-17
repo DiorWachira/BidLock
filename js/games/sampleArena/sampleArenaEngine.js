@@ -175,7 +175,8 @@ export class SampleArenaEngine {
     if (!Number.isInteger(choice) || choice < 0 || choice > 3) return false;
     p.locked = true;
     p.choice = choice;
-    p.at = Math.round(this.elapsed * 1000) / 1000;
+    // A guest's answer is timed from when it was sent: inputLag is how late it arrived.
+    p.at = Math.round(Math.max(0, this.elapsed - (this.inputLag || 0)) * 1000) / 1000;
     p.ok = choice === this.correct;
     this.emit('lock', { id, at: p.at });
     return true;

@@ -237,7 +237,17 @@ A player's seat is taken from their connection, never from the message, and the 
 
 **Joining is patient.** A guest retries for about 50 seconds before giving up, and the lobby says what is happening ("Still connecting… try 2 of 4"). This covers the most common failure: a host on a phone who switches to a messaging app to send the code. That pauses the page and takes the room off the signalling server, so friends joining at that moment cannot get in. The host reconnects as soon as they come back, and the waiting guests get in then. The host's lobby says so: send the code, then come back.
 
-**Strict networks need a relay.** Browsers connect directly, with STUN servers (Google's and Cloudflare's) to find each other. A player behind a strict NAT, which is common on mobile data and some office or campus networks, cannot connect directly and needs a TURN relay. PeerJS used to bundle free TURN servers, but those hostnames no longer exist, so BidLock ships with no relay. To add one, sign up for a TURN provider with a free tier (Metered and ExpressTURN are two) and paste the servers it gives you into `TURN_SERVERS` in `js/net/iceServers.js`. This is a static site, so those credentials are public: use the provider's restricted, low-quota ones. For a quick test without editing code, set `localStorage['bidlock.turn']` to the same list as JSON. When a direct connection fails, the joining player is told it is their network, not the code.
+**Smoothing the link for guests.** Everything a guest sees has crossed the network, so the room measures each player's delay and makes up for it:
+
+- The host pings every player every two seconds. The lobby shows each guest's round trip (green under 120 ms, amber under 250, red above), and a guest's room chip shows their own and turns amber on a slow link.
+- Clocks are corrected, not copied. Every tick from the host is one network delay old when it lands, so a guest subtracts that delay and eases small differences in, instead of jumping. In tests with 150 ms each way, a guest's clock stayed within a few hundredths of a second of the host's.
+- The delay used for corrections is the quickest of the last six pings, not the average. A busy page only ever adds delay to a ping, so the quickest is the truest measure of the link (as NTP does).
+- Inputs are timed when they were sent. In the quiz games a guest's answer or move is back-dated by their measured delay (at most 0.3 s), so a guest on a slow line is not marked slower than they were. In BidLock the hammer waits for the slowest guest's delay before it falls, so a bid made in time on a guest's screen still counts.
+- Snapshots travel as changes. After the first full snapshot, an event carries only the parts of the match that changed, with a full one every 25 events. A BidLock match sends each guest about 570 KB instead of 4 MB, 86% less, which matters most on a phone's upload when it hosts.
+
+To try a slow link without one, add `?net=local&lag=150` to two tabs: every message is held back 150 ms each way.
+
+**Strict networks need a relay.** Browsers connect directly, with STUN servers (Google's and Cloudflare's) to find each other. A player behind a strict NAT, which is common on mobile data and some office or campus networks, cannot connect directly and needs a TURN relay. PeerJS used to bundle free TURN servers, but those hostnames no longer exist, so BidLock ships with no relay. To add one, sign up for a TURN provider with a free tier and either paste the servers it gives you into `TURN_SERVERS` in `js/net/iceServers.js` (ExpressTURN's free plan, 1 TB a month, gives one fixed username and password), or put its credentials URL in `TURN_CREDENTIALS_URL` (Metered's free plan, 20 GB a month, gives an API key and a URL that returns the servers). This is a static site, so those credentials are public: use the provider's restricted, low-quota ones. For a quick test without editing code, set `localStorage['bidlock.turn']` to the same list as JSON. When a direct connection fails, the joining player is told it is their network, not the code.
 
 The public PeerJS signalling server is a shared free service and is occasionally busy. If the host's tab is in the background during a match, the match keeps running, but browsers slow background timers, so the host should keep the tab in front.
 
@@ -386,6 +396,7 @@ npm test
 ```
 
 - `tests/arcade.test.mjs` runs in plain Node: 150 simulated matches of each quiz game at tables of 2 to 12, checking that exactly one champion is left, that all seven survival games, six twists and five kinds of weather turn up, that no question repeats across ten matches on one device, that the lamp never goes fully dark, that secrets stay out of snapshots, and that a guest's mirror agrees with the host.
+- `tests/net.test.mjs` runs in plain Node: snapshot deltas that rebuild exactly (and save over half the bytes), ping measurement and its cap, the hammer's grace for a slow guest, back-dated answers, and fetched relay credentials.
 - `tests/soundclash.test.mjs` runs in plain Node: the crate digger against fake iTunes answers (filtering, artwork, eight fair rounds, the offline fallback), the scoring, 200 bot matches with every invariant, sabotage rules, secrets in snapshots, the synth tunes, and the seamless loop maker.
 - `tests/soundclash.e2e.mjs` drives the browser through the crate picker, all three audio tiers (a served WAV with CORS, the same file refused to `fetch`, and iTunes blocked), every sabotage, overtime, the reveal and the podium, a two-player room with a crate pick, and a 390 px phone.
 - `tests/arcade.e2e.mjs` drives the browser through the channel guide, both quiz games solo, a room that votes, plays Trapdoor Royale, goes back to the lobby and plays Last Lamp, and both games on a 390 px phone.
@@ -394,7 +405,7 @@ npm test
 
 `playwright-core` is the only dependency and is only needed for the browser tests.
 
-Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation, `?music=offline` plays Soundclash from the offline synth crate.
+Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation, `?music=offline` plays Soundclash from the offline synth crate, `?lag=150` (with `?net=local`) delays every room message by 150 ms each way.
 
 ## Deploy
 

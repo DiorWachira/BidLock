@@ -53,6 +53,9 @@ A fourth game: name the song from a warped three-second loop of a real iTunes pr
 - Six players in one room work: tested over real PeerJS with a host and five guests, including a host who drops off the signalling server for 9 s while someone joins (the guest retries and gets in).
 - There is no TURN relay. PeerJS's free TURN servers (`eu-0`/`us-0.turn.peerjs.com`) no longer exist in DNS, and Open Relay (`openrelay.metered.ca`) resolves to a blocked address. Players behind strict NATs (often mobile data) cannot join until a relay is added in `js/net/iceServers.js`. That needs an account with a TURN provider, which is the owner's call.
 
+- Guest lag is smoothed: each player is pinged and the quickest of the last six round trips is used for corrections; guest clocks are corrected for delay; guest inputs are back-dated (at most 0.3 s); BidLock's hammer waits for the slowest guest; snapshots travel as deltas (86% less traffic in BidLock). `?net=local&lag=150` simulates a slow link.
+- Deferred, by the owner's choice: a Cloudflare Workers + Durable Objects room server to replace peer-to-peer, possibly with hosting moved off GitHub Pages. Waiting on the owner's Metered TURN credentials first.
+
 ## Not verified yet
 
 - Nobody has listened to the sound in the arcade games.

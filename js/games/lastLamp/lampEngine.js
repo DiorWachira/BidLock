@@ -189,7 +189,7 @@ export class LampEngine {
     if (!Number.isInteger(index) || index < 0 || index >= this.question.answers.length) return false;
     const first = p.answer == null;
     p.answer = index;
-    p.answerAt = this.elapsed;
+    p.answerAt = Math.max(0, this.elapsed - (this.inputLag || 0));
     if (first) this.emit('answered', { id });
     const waiting = this.players.filter((x) => !x.away && x.answer == null);
     if (!waiting.length) this.t = Math.min(this.t, 1.2);

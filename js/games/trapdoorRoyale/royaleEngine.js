@@ -157,7 +157,8 @@ export class RoyaleEngine {
     if (this.stunned(p) || platform === this.blocked) return false;
     if (p.choice === platform) return false;
     p.choice = platform;
-    p.choiceAt = this.elapsed;
+    // inputLag: how late a guest's move arrived (set by the host for the call).
+    p.choiceAt = Math.max(0, this.elapsed - (this.inputLag || 0));
     this.emit('move', { id, to: platform });
     return true;
   }

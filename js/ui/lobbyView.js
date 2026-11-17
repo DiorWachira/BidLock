@@ -206,7 +206,9 @@ export class LobbyView {
       if (p && p.host) tags.push('HOST');
       if (p && p.pid === state.you) tags.push('YOU');
       if (s.kind === 'ai') tags.push('BOT');
-      return `<li style="--who:${colors[i]}"><span class="lp-seat">${i + 1}</span><b>${esc(s.name)}</b>${tags.map((t) => `<span class="lp-tag">${t}</span>`).join('')}</li>`;
+      const ms = p && !p.host ? this.lobby.latencyMs(p.pid) : null;
+      const link = ms == null ? '' : `<span class="lp-link" data-q="${ms < 120 ? 'good' : ms < 250 ? 'ok' : 'slow'}" title="Round trip to the host">${ms} ms</span>`;
+      return `<li style="--who:${colors[i]}"><span class="lp-seat">${i + 1}</span><b>${esc(s.name)}</b>${tags.map((t) => `<span class="lp-tag">${t}</span>`).join('')}${link}</li>`;
     });
     if (!host && state.fillBots && seats.length < fillTo) rows.push(`<li class="lp-note">Bots fill the rest of the table, up to ${fillTo}.</li>`);
     for (let i = seats.length; i < Math.min(MAX_PLAYERS, Math.max(seats.length + 1, 2)); i++) rows.push(`<li class="lp-open"><span class="lp-seat">${i + 1}</span>Open seat</li>`);

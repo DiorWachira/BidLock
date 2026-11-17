@@ -25,6 +25,11 @@ export const STUN_SERVERS = Object.freeze([
 
 export const TURN_SERVERS = Object.freeze([]);
 
+// Or, for providers that hand out credentials from a URL (Metered's free plan:
+// https://<your-app>.metered.live/api/v1/turn/credentials?apiKey=<key>), put that URL
+// here. It is fetched when a room is opened or joined, and its servers are added.
+export const TURN_CREDENTIALS_URL = '';
+
 // A relay can also be supplied without editing code, for testing:
 // localStorage['bidlock.turn'] = JSON.stringify([{ urls, username, credential }])
 function storedTurn() {
@@ -37,10 +42,33 @@ function storedTurn() {
   }
 }
 
+let fetched = [];
+let fetchedAt = 0;
+
+// The servers fetched from TURN_CREDENTIALS_URL, refreshed every ten minutes. Never
+// throws and never waits more than a few seconds: without them, STUN still works.
+export async function loadIceServers({ url = TURN_CREDENTIALS_URL, fetchImpl = null, timeoutMs = 4000 } = {}) {
+  if (!url) return iceServers();
+  if (fetched.length && Date.now() - fetchedAt < 10 * 60 * 1000) return iceServers();
+  const doFetch = fetchImpl || (typeof fetch === 'function' ? (...a) => fetch(...a) : null);
+  if (!doFetch) return iceServers();
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const res = await doFetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+    const list = res.ok ? await res.json() : [];
+    fetched = (Array.isArray(list) ? list : list.iceServers || []).filter((x) => x && x.urls);
+    fetchedAt = Date.now();
+  } catch { /* keep whatever we had */ } finally {
+    if (timer) clearTimeout(timer);
+  }
+  return iceServers();
+}
+
 export function iceServers() {
-  return [...STUN_SERVERS, ...TURN_SERVERS, ...storedTurn()];
+  return [...STUN_SERVERS, ...TURN_SERVERS, ...storedTurn(), ...fetched];
 }
 
 export function hasRelay() {
-  return TURN_SERVERS.length > 0 || storedTurn().length > 0;
+  return TURN_SERVERS.length > 0 || storedTurn().length > 0 || fetched.length > 0;
 }

@@ -108,7 +108,17 @@ export class GameBase {
   }
 
   tickData() { return { c: this.engine.t }; }
-  applyTick(msg) { this.engine.t = msg.c; }
+
+  // A tick is already one network delay old when it lands. Correct for that, and ease
+  // small differences in rather than jumping, so a guest's clock runs smoothly.
+  applyTick(msg) {
+    const e = this.engine;
+    const target = Math.max(0, msg.c - this.oneWay());
+    const d = target - e.t;
+    e.t = Math.abs(d) > 0.35 ? target : e.t + d * 0.5;
+  }
+
+  oneWay() { return this.shell.oneWay ? this.shell.oneWay() : 0; }
 
   // ---------- the room ----------
   fromHost(msg) {
@@ -116,13 +126,18 @@ export class GameBase {
     if (msg.t === WIRE.GAME_TICK) { if (this.engine.mirror) this.applyTick(msg); return; }
     if (msg.t !== WIRE.GAME_EVENT || !msg.s) return;
     this.engine.hydrate(msg.s, this.localSeat);
+    if (this.engine.t > 0) this.engine.t = Math.max(0, this.engine.t - this.oneWay());
     this.engine.emit(msg.ev, msg.d || {});
   }
 
   fromPlayer(seat, msg) {
     if (this.stopped || !this.engine.players[seat]) return;
     if (msg.t === WIRE.BYE) { this.engine.setAway(seat, true); return; }
-    if (msg.t === WIRE.GAME_INPUT && typeof msg.a === 'string') this.apply(seat, msg.a, msg);
+    if (msg.t === WIRE.GAME_INPUT && typeof msg.a === 'string') {
+      // The engine times this input from when it was sent, not when it arrived.
+      this.engine.inputLag = this.shell.lagFor ? this.shell.lagFor(seat) : 0;
+      try { this.apply(seat, msg.a, msg); } finally { this.engine.inputLag = 0; }
+    }
   }
 
   // The local player does something. A guest sends it; everyone else applies it.
