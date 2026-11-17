@@ -87,7 +87,8 @@ await new Promise((r) => server.listen(0, r));
 const BASE = `http://localhost:${server.address().port}/`;
 
 // itunes: 'off' (blocked: offline crate), 'cors' (tier 1), 'nocors' (tier 2)
-async function context(browser, { viewport = { width: 1366, height: 768 }, itunes = 'off', mobile = false } = {}) {
+// slowFirst: the first preview fetch takes this long (ms), like a slow line.
+async function context(browser, { viewport = { width: 1366, height: 768 }, itunes = 'off', mobile = false, slowFirst = 0 } = {}) {
   const ctx = await browser.newContext({ viewport, ...(mobile ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}) });
   await ctx.addInitScript(() => { if (!localStorage.getItem('bidlock.guide.seen')) localStorage.setItem('bidlock.guide.seen', '1'); });
   await ctx.route('https://opentdb.com/**', (r) => r.abort());
@@ -101,8 +102,10 @@ async function context(browser, { viewport = { width: 1366, height: 768 }, itune
   });
   // 'nocors' refuses the preview to fetch() (as a CORS block would) but serves the
   // <audio> element, which needs no CORS.
-  await ctx.route('https://audio-ssl.itunes.apple.com/**', (r) => {
+  let fetches = 0;
+  await ctx.route('https://audio-ssl.itunes.apple.com/**', async (r) => {
     if (itunes === 'nocors' && r.request().resourceType() === 'fetch') return r.abort('accessdenied');
+    if (slowFirst && r.request().resourceType() === 'fetch' && fetches++ === 0) await new Promise((x) => setTimeout(x, slowFirst));
     // Byte ranges, like the real CDN, so an <audio> element can seek to the hook.
     const range = /bytes=(\d+)-(\d*)/.exec(r.request().headers().range || '');
     if (range) {
@@ -233,16 +236,18 @@ try {
 
   // ---------- 2. Tier 1: a real search, decoded previews, artwork and the store link
   {
-    const ctx = await context(browser, { itunes: 'cors' });
+    const ctx = await context(browser, { itunes: 'cors', slowFirst: 7000 });
     const { page: p, errors } = await page(ctx, `${Q}&seed=3`);
     await p.locator('.channel[data-game="soundclash"]').click();
     await p.locator('.sc-crate[data-genre="rock"]').click();
     await p.locator('#btn-start').click();
+    await p.waitForFunction(() => /Cueing up the first record/.test(document.querySelector('#sc-card')?.textContent || ''), null, { timeout: 10000 });
+    ok('a slow first preview: the start waits, cueing up the record', (await phase(p)) === 'IDLE');
     await waitPhase(p, 'PLAY');
     ok('three searches for one crate', ctx.searches.length === 3, ctx.searches.join(', '));
     ok('the searches come from the chosen crate', ctx.searches.every((t) => ['Arctic Monkeys', 'The Killers', 'Foo Fighters', 'Red Hot Chili Peppers', 'Linkin Park', 'Nirvana', 'Coldplay', 'Imagine Dragons', 'The Strokes', 'Muse', 'Paramore', 'Green Day', 'Oasis', 'Tame Impala', 'Radiohead'].includes(t)));
     await p.waitForFunction(() => window.__bidlock.arcade.deck.tier > 0, null, { timeout: 5000 });
-    ok('tier 1: the preview is fetched and decoded', (await deck(p)).tier === 1, JSON.stringify(await deck(p)));
+    ok('tier 1 from the first round, even on a slow line', (await deck(p)).tier === 1, JSON.stringify(await deck(p)));
     ok('the source chip says Web Audio', (await p.locator('#sc-tier').textContent()).includes('WEB AUDIO'));
     ok('iTunes is credited', await p.locator('#sc-credit').isVisible());
     await p.waitForFunction(() => Object.values(window.__bidlock.arcade.deck.status().cache).filter((s) => s === 'ok').length >= 3, null, { timeout: 10000 });

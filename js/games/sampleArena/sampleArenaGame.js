@@ -13,6 +13,7 @@ import { mulberry32 } from '../../engine/auctionEngine.js';
 const TIER_LABEL = { 0: 'NO SIGNAL', 1: 'WEB AUDIO', 2: 'STREAM', 3: 'SYNTH' };
 const SAB_KEYS = { under: 'Z', scratch: 'X', shock: 'C' };
 const OPEN = new Set([S_PHASE.REVEAL, S_PHASE.PODIUM]);
+const FIRST_RECORD_WAIT = 9000; // ms: the longest the start waits for round 1's preview
 
 export class SampleArenaGame extends GameBase {
   constructor(shell) {
@@ -111,9 +112,20 @@ export class SampleArenaGame extends GameBase {
     this.showCard(this.warmHtml(`Digging through the crates: ${genre.name}.`));
     const debug = this.shell.debug || {};
     loadMatch({ genre: genre.id, rng: mulberry32((seed ^ 0x2c1b3c6d) >>> 0), offline: !!debug.musicOffline || (typeof navigator !== 'undefined' && navigator.onLine === false) })
-      .then((match) => {
+      .then(async (match) => {
         if (this.stopped) return;
         this.match = match;
+        // Cue up the first record before the show starts, so round 1 plays from the
+        // decoded buffer (true reverse and filters) rather than the streaming fallback.
+        // On a slow line this waits up to FIRST_RECORD_WAIT; then the stream takes over.
+        const urls = match.rounds.map((r) => r.target.url || '');
+        if (urls[0]) {
+          this.showCard(this.warmHtml('Cueing up the first record…'));
+          this.deck.prefetch(urls);
+          this.prefetched = true;
+          await this.deck.ready(urls[0], FIRST_RECORD_WAIT);
+          if (this.stopped) return;
+        }
         this.engine.startMatch({ seats: this.seats, seed, localId: 0, match });
       })
       .catch((err) => {
