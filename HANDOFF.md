@@ -19,7 +19,7 @@ Shared: one room-code lobby (PeerJS, 2 to 6 people, bots fill), a game picker an
 A fourth game: name the song from a warped three-second loop of a real iTunes preview.
 
 - Folder `js/games/sampleArena/`: `itunesLoader.js` (genres, search, rounds), `synthTunes.js` (offline melodies), `sampleAudioFX.js` (the three audio tiers and the sabotage effects), `sampleArenaEngine.js` (rules), `sampleArena3d.js` (the club), `sampleArenaGame.js` (the screen).
-- 8 rounds of 12 s: 8 s warped, 4 s clean overtime. Speed points (1,000 to 500, then 350 to 150 in overtime) times a streak multiplier (1.2x, 1.5x, 2x). The last round is a clean, double-points "dubplate special".
+- 8 rounds of 16 s: 11 s warped, 5 s clean overtime. Players can change their answer until the clock runs out; their time is their last pick. Speed points (1,000 to 500, then 350 to 150 in overtime) times a streak multiplier (1.2x, 1.5x, 2x). The last round is a clean, double-points "dubplate special".
 - Sabotages cost points: Underwater 300, Scratch 450, Reverse/Chipmunk 600.
 - The audio has three tiers: a decoded Web Audio buffer, then HTML5 audio with a synth overlay, then offline synth tunes (public-domain melodies only).
 
@@ -47,6 +47,12 @@ A fourth game: name the song from a warped three-second loop of a real iTunes pr
 - `npm test` runs everything. Or separately: `node --test tests/engine.test.mjs tests/arcade.test.mjs` for the rules, then `node tests/e2e.mjs` (BidLock) and `node tests/arcade.e2e.mjs` (the arcade games) in the browser.
 - The browser tests use Playwright's headless shell first: it opens no OS windows and still uses the real GPU. Edge and Chrome are fallbacks; headless Edge and Chrome leave hidden windows that can show in Alt+Tab.
 - `node tools/serve.mjs`, then open `http://localhost:5173` to play. Debug parameters: `?trivia=local`, `?media=off`, `?speed=4`, `?seed=1`, `?auto=1`, `?net=local`. For Soundclash, `?music=offline` forces the synth tunes.
+
+## Feedback round (2026-11-17)
+
+- More question time: Trapdoor Royale 16 s (speed 10, sudden death 12), Last Lamp 20 s (sprints 14), Soundclash 16 s, the Oracle 20 s.
+- Smooth movement: figures accelerate, ease into their spot and turn smoothly (`Figure.update` in `js/arcade/figures3d.js`); keys steer the Trapdoor contestant, who glides to a stop.
+- Soundclash: answers can be changed; difficulty (Easy, Normal, Hard); curated hit lists per artist in `js/games/sampleArena/hits.js`, checked against real iTunes results. The anime crate is now mostly anime-opening artists. Dave, Future and LiSA were dropped (their searches return the wrong artist or too little); Tyla, CKay and Lil Nas X joined.
 
 ## Rooms and networks
 

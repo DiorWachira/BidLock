@@ -21,7 +21,7 @@ import { MediaLoader } from './utils/mediaLoader.js';
 import { LobbyManager, WIRE, wireType, packEvent, unpackEvent, EMOTES } from './net/lobbyManager.js';
 import { GAMES, gameById } from './arcade/games.js';
 import { botSeats } from './arcade/bots.js';
-import { GENRE_CHOICES, genreById } from './games/sampleArena/itunesLoader.js';
+import { GENRE_CHOICES, genreById, LEVELS, levelById } from './games/sampleArena/itunesLoader.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 
@@ -57,6 +57,7 @@ const settings = {
   marathon: !!store.get('marathon', false),
   game: gameById(store.get('game', 'bidlock')).id,
   genre: genreById(store.get('genre', 'all')).id,
+  level: levelById(store.get('scLevel', 'normal')).id,
   volume: Math.max(0, Math.min(1, Number(store.get('volume', 0.7)) || 0)),
   muted: !!store.get('muted', false),
   theme: store.get('theme', 'dark') === 'light' ? 'light' : 'dark',
@@ -217,7 +218,7 @@ function applyModes() {
 
 function modeSummary() {
   const g = gameById(lobby.state.game);
-  if (g.id === 'soundclash') return `${g.name}: crate ${genreById(lobby.state.genre || settings.genre).name}. With bots on, the table fills to ${g.fillTo}.`;
+  if (g.id === 'soundclash') return `${g.name}: crate ${genreById(lobby.state.genre || settings.genre).name}, ${levelById(lobby.state.level || settings.level).name.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   if (g.id !== 'bidlock') return `${g.name}: ${g.kind.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   return `$${settings.budget} bankroll · ${settings.marathon ? 'Marathon, 8 rounds' : '6 rounds'}${settings.allIn ? ' · All-In for every player' : ''}. Change these on the title screen.`;
 }
@@ -312,6 +313,7 @@ const lobby = new LobbyManager({
   onState: (state) => {
     // A new room starts with this device's Soundclash crate.
     if (state.role === 'host' && state.status === 'open' && !state.genre) { lobby.setGenre(settings.genre); return; }
+    if (state.role === 'host' && state.status === 'open' && !state.level) { lobby.setLevel(settings.level); return; }
     if (lobbyView) lobbyView.render(state);
     const chip = $('#roomchip');
     const open = state.status === 'open' && state.role != null;
@@ -493,6 +495,7 @@ const shell = {
   oneWay: () => lobby.oneWay,
   // Soundclash's crate: the room's in a room, this device's otherwise.
   genre: () => (role === 'host' && lobby.state.genre ? lobby.state.genre : settings.genre),
+  level: () => (role === 'host' && lobby.state.level ? lobby.state.level : settings.level),
 };
 
 async function loadGame(id) {
@@ -636,6 +639,40 @@ function selectGenre(id) {
     b.tabIndex = on ? 0 : -1;
   }
   if (lobby.isHost) lobby.setGenre(settings.genre);
+  if (lobbyView) lobbyView.render(lobby.state);
+}
+
+function buildLevels() {
+  const wrap = $('#sc-level-list');
+  if (!wrap) return;
+  wrap.innerHTML = LEVELS.map((l) => `<button type="button" class="sc-level" role="radio" data-level="${l.id}" aria-checked="${l.id === settings.level}" tabindex="${l.id === settings.level ? 0 : -1}"><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('');
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.sc-level');
+    if (!b) return;
+    audio.unlock();
+    audio.blip();
+    selectLevel(b.dataset.level);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    const ids = LEVELS.map((l) => l.id);
+    const i = ids.indexOf(settings.level);
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+    selectLevel(ids[(i + d + ids.length) % ids.length]);
+    wrap.querySelector(`[data-level="${settings.level}"]`).focus();
+  });
+}
+
+function selectLevel(id) {
+  settings.level = levelById(id).id;
+  store.set('scLevel', settings.level);
+  for (const b of document.querySelectorAll('#sc-level-list .sc-level')) {
+    const on = b.dataset.level === settings.level;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  if (lobby.isHost) lobby.setLevel(settings.level);
   if (lobbyView) lobbyView.render(lobby.state);
 }
 
@@ -1371,6 +1408,7 @@ async function boot() {
   });
   buildChannels();
   buildCrates();
+  buildLevels();
   lobbyView = new LobbyView({
     lobby,
     loadName: () => store.get('name', ''),
@@ -1379,6 +1417,8 @@ async function boot() {
     defaultGame: () => settings.game,
     genre: () => settings.genre,
     onGenre: (id) => { audio.blip(); selectGenre(id); },
+    level: () => settings.level,
+    onLevel: (id) => { audio.blip(); selectLevel(id); },
     summary: modeSummary,
     onStart: startRoom,
     onOpen: () => {},

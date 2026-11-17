@@ -43,7 +43,7 @@ All four share the room-code lobby and the sound engine; the three quiz games sh
 
 A question goes up on the board over the arena with four answers, one per coloured platform. Run to the platform you trust (WASD or the arrow keys, `1` to `4`, or click the platform or its answer). You can change your mind until the clock runs out. Once a question, `E` shoves: everyone sharing your platform is pinned there for two seconds, while you are free to leave. When time is up the bridges retract, the spotlights come on, and the three wrong platforms open like trapdoors. Anyone on them, or still dithering in the middle, falls.
 
-- **Standard rounds** give 12 seconds. From question 4 they are **speed rounds** of 7 seconds.
+- **Standard rounds** give 16 seconds. From question 4 they are **speed rounds** of 10 seconds.
 - With three or fewer left it is **sudden death**: if everyone finds the right platform, the last one to arrive drops anyway.
 - If nobody finds it, the floor holds and everyone goes again.
 - From question 2, about every other question carries a **twist**, never the same one twice running:
@@ -112,7 +112,7 @@ A sound clash is a battle between sound systems, a tradition that started in Jam
 | Reverse spin | the three seconds played backwards |
 | Clean cut | the last round, the "dubplate special": unwarped, double points, and a wrong answer costs 250 |
 
-Name it with a click or 1 to 4. A right answer is worth 1,000 points at the drop, falling to 500 by eight seconds. Then the warp lifts for four seconds of overtime, worth 350 falling to 150. Right answers in a row multiply: ×1.2, ×1.5, then ×2.
+Name it with a click or 1 to 4. A right answer is worth 1,000 points at the drop, falling to 500 by eleven seconds. Then the warp lifts for five seconds of overtime, worth 350 falling to 150. You can change your answer until the clock runs out; your time is when you last picked. Right answers in a row multiply: ×1.2, ×1.5, then ×2.
 
 Points are also ammunition. Once a round you can throw a dubplate at a rival, or at whoever leads:
 
@@ -124,7 +124,7 @@ Points are also ammunition. Once a round you can throw a dubplate at a rival, or
 
 The house sounds answer faster for popular songs and worse under heavy warps. Occasionally one throws a dubplate at a person in the lead. In simulations against five bots, a player who knows 50% of songs wins about 23% of matches and one who knows 90% wins about 77%. Thrown at a leader on a streak, a sabotage is worth its price; thrown every round, it costs you the match.
 
-**Crates.** Pick the music on the title screen, or as host in the lobby: Global Pop & Chart Toppers; Hip-Hop, Rap & Trap; UK Grime, Drill & Afrobeats; 2000s & 2010s Throwback Anthems; Rock, Indie & Alt Classics; Anime, Gaming & Meme Bangers; or the All-Genre Shuffle. A match makes three to four calls to the free [iTunes Search API](https://performance-partners.apple.com/search-api) (no key), keeps songs with a 30-second preview, drops covers, karaoke and live takes, and builds eight rounds whose wrong answers come from the same searches.
+**Crates and difficulty.** Pick the music on the title screen, or as host in the lobby: Global Pop & Chart Toppers; Hip-Hop, Rap & Trap; UK Grime, Drill & Afrobeats; 2000s & 2010s Throwback Anthems; Rock, Indie & Alt Classics; Anime, Gaming & Meme Bangers (mostly the artists behind the best-known anime openings, such as YOASOBI, Kenshi Yonezu, Ado, Linked Horizon, Creepy Nuts and TK's "unravel", plus game soundtracks and meme anthems); or the All-Genre Shuffle. Every artist a crate searches has a curated list of their famous songs (`js/games/sampleArena/hits.js`, checked against what the iTunes Search API actually returns), and the difficulty decides what is asked: **Easy** asks only about those hits, uses only the gentle warps (nightcore, chopped and screwed) and puts every wrong answer by a different artist; **Normal** asks about the hits with every warp; **Hard** asks about everything else they have released. A match makes three to four calls to the free [iTunes Search API](https://performance-partners.apple.com/search-api) (no key), keeps songs with a 30-second preview, drops covers, karaoke and live takes, and draws the wrong answers from the same searches.
 
 **Audio that never goes silent.** `sampleAudioFX.js` has three tiers:
 
@@ -182,7 +182,7 @@ Then open `http://localhost:5173`. Any static file server works (`python -m http
 
 **The Oracle.** After any round from the second onward (but not the last), there is a 45% chance of an Oracle intervention, at most twice a match. One contender is picked at random from those who still have a slot to fill and can afford at least one rival's lot at half price.
 
-1. They get one hard general-knowledge question and 15 seconds. Everyone watches. Wrong or out of time, and the chance is gone.
+1. They get one hard general-knowledge question and 20 seconds. Everyone watches. Wrong or out of time, and the chance is gone.
 2. Right, and they choose any rival's lot to take for half what that rival paid (rounded down, at least $1). The rival gets that half back, and is left holding the thief's lot from the same category.
 3. Before the lot moves, they have 10 seconds to choose: **lock in the half-price steal**, or **double or nothing**. Double or nothing is a second hard question. Right, and the lot is free. Wrong, and the whole steal is forfeited.
 

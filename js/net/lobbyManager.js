@@ -377,7 +377,7 @@ export class LobbyManager {
   }
 
   _blank() {
-    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null };
+    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null, level: null };
   }
 
   // Start downloading the multiplayer library before anyone presses a button.
@@ -480,8 +480,8 @@ export class LobbyManager {
 
   _sendLobby() {
     if (!this.isHost) return;
-    const { code, players, fillBots, inMatch, game, votes, genre } = this.state;
-    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, genre, you: pid });
+    const { code, players, fillBots, inMatch, game, votes, genre, level } = this.state;
+    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, genre, level, you: pid });
   }
 
   setFillBots(on) {
@@ -501,6 +501,13 @@ export class LobbyManager {
   setGenre(id) {
     if (!this.isHost || this.state.inMatch || typeof id !== 'string' || id.length > 24) return;
     this._set({ genre: id });
+    this._sendLobby();
+  }
+
+  // Host: Soundclash's difficulty for the room.
+  setLevel(id) {
+    if (!this.isHost || this.state.inMatch || typeof id !== 'string' || id.length > 12) return;
+    this._set({ level: id });
     this._sendLobby();
   }
 
@@ -737,7 +744,7 @@ export class LobbyManager {
       return;
     }
     if (msg.t === WIRE.LOBBY) {
-      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null });
+      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null, level: typeof msg.level === 'string' ? msg.level : null });
       if (this._joinWait) this._joinWait.resolve();
       return;
     }

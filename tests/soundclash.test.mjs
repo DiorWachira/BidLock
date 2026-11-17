@@ -8,7 +8,10 @@ import {
 } from '../js/games/sampleArena/sampleArenaEngine.js';
 import {
   GENRES, GENRE_CHOICES, genreById, cleanTitle, parseResults, buildRounds, offlineRounds, planSearches, loadMatch, ROUND_COUNT,
+  LEVELS, levelById, isHit, hitsFor,
 } from '../js/games/sampleArena/itunesLoader.js';
+import { HITS } from '../js/games/sampleArena/hits.js';
+import { EASY_WARPS } from '../js/games/sampleArena/sampleArenaEngine.js';
 import { SYNTH_TUNES, renderTune } from '../js/games/sampleArena/synthTunes.js';
 import { makeLoop, WARPS } from '../js/games/sampleArena/sampleAudioFX.js';
 
@@ -58,6 +61,7 @@ test('the crate digger: titles, filtering and artwork', () => {
   assert.ok(list[0].pop > list[19].pop, 'earlier results count as more popular');
   assert.equal(parseResults(fixture('Muse'), { term: 'Oasis' }).length, 0);
   assert.equal(parseResults(fixture('Muse'), { term: 'Oasis', loose: true }).length, 21, 'scene searches keep other artists');
+  assert.equal(parseResults(fixture('Beyoncé'), { term: 'Beyonce' }).length, 20, 'accents do not matter');
   assert.deepEqual(parseResults(null), []);
 });
 
@@ -104,12 +108,15 @@ test('the crate digger: iTunes, or the offline crate when it fails', async () =>
 });
 
 test('scoring: speed, overtime and streaks', () => {
+  const W = S_RULES.warpTime;
+  const T = S_RULES.roundTime;
+  assert.ok(T >= 16 && W >= 11, 'sixteen seconds a round, eleven of them warped');
   assert.equal(speedPoints(0), 1000);
-  assert.equal(speedPoints(4), 750);
-  assert.equal(speedPoints(8), 500);
-  assert.equal(speedPoints(8.0001), 350);
-  assert.equal(speedPoints(10), 250);
-  assert.equal(speedPoints(12), 150);
+  assert.equal(speedPoints(W / 2), 750);
+  assert.equal(speedPoints(W), 500);
+  assert.equal(speedPoints(W + 0.0001), 350);
+  assert.equal(speedPoints(W + (T - W) / 2), 250);
+  assert.equal(speedPoints(T), 150);
   assert.deepEqual([1, 2, 3, 4, 9].map(streakMult), [1, 1.2, 1.5, 2, 2]);
   assert.deepEqual(Object.values(SABOTAGES).map((s) => s.cost), [300, 450, 600]);
 });
@@ -161,8 +168,14 @@ test('soundclash: inputs are checked and the answer stays secret', () => {
   assert.equal(snap.last, null);
   assert.ok(snap.cur.options.length === 4 && snap.cur.url === '' && snap.cur.synth);
   assert.equal(e.answerFor(0, 9), false);
-  assert.equal(e.answerFor(0, e.correct), true);
-  assert.equal(e.answerFor(0, 0), false, 'one answer a round');
+  const wrongPick = (e.correct + 1) % 4;
+  assert.equal(e.answerFor(0, wrongPick), true);
+  const firstAt = e.players[0].at;
+  for (let i = 0; i < 30; i++) e.update(1 / 30);
+  assert.equal(e.answerFor(0, wrongPick), false, 'the same pick twice does nothing');
+  assert.equal(e.answerFor(0, e.correct), true, 'you can change your mind');
+  assert.ok(e.players[0].at > firstAt + 0.9, 'and your time counts from the change');
+  assert.equal(e.players[0].changes, 1);
   snap = wire(e.serialize());
   assert.equal(snap.pl[0].lk, 1);
   assert.equal(snap.pl[0].ch, null, 'nobody can see what you picked');
@@ -171,7 +184,7 @@ test('soundclash: inputs are checked and the answer stays secret', () => {
   assert.equal(e.sabotageFor(1, 'under', 0), false, 'no points, no throw');
   e.players[1].score = 1000;
   assert.equal(e.sabotageFor(1, 'under', 1), false, 'not at yourself');
-  assert.equal(e.sabotageFor(1, 'under', 0), false, 'not at someone who has locked in');
+  assert.equal(e.sabotageFor(2, 'under', 0), false, 'no points, no throw (seat 2 has none)');
   assert.equal(e.sabotageFor(1, 'nope', 2), false);
   assert.equal(e.sabotageFor(1, 'scratch', 2), true);
   assert.equal(e.players[1].score, 550);
@@ -268,4 +281,45 @@ test('the loop maker: three seconds, a seamless seam, and reverse', () => {
   const rev = makeLoop(ctx, src, 10, { len: 3, xf: 0.02, reverse: true });
   const r = rev.getChannelData(0);
   assert.ok(r[100] > r[200], 'reversed slices run backwards');
+});
+
+test('hits and difficulty: famous songs on easy and normal, deep cuts on hard', () => {
+  assert.deepEqual(LEVELS.map((l) => l.id), ['easy', 'normal', 'hard']);
+  assert.equal(levelById('nope').id, 'normal');
+  // Matching is forgiving about punctuation, featured artists and subtitles.
+  assert.ok(isHit("Don't Start Now", ['Dont Start Now']));
+  assert.ok(isHit('Wake Me Up - Radio Edit', ['Wake Me Up']));
+  assert.ok(isHit('Levitating (feat. DaBaby)', ['Levitating']));
+  assert.ok(!isHit('Sugar', ['Sugar Rush Ride']));
+  assert.ok(!isHit('Up', ['Uptown Funk']), 'short titles must match exactly');
+  assert.ok(isHit('Single Ladies', ['Single Ladies (Put a Ring on It)']), 'a bracketed subtitle may be missing');
+  assert.ok(isHit('Sunflower (Spider-Man: Into the Spider-Verse)', ['Sunflower']));
+  // Every artist in every crate has a curated list of hits.
+  for (const g of GENRES) for (const term of g.terms) assert.ok(hitsFor(g.id, term).length >= 3, `${g.id}: ${term} has hits`);
+  for (const g of Object.keys(HITS)) for (const term of Object.keys(HITS[g])) assert.ok(GENRES.find((x) => x.id === g).terms.includes(term), `${g}: ${term} is searched`);
+  // Build a pool: per artist, 5 hits and 10 album tracks.
+  const pool = [];
+  for (const artist of ['Alpha', 'Bravo', 'Charlie']) {
+    for (let i = 0; i < 15; i++) pool.push({ id: `${artist}${i}`, title: `${artist} Track ${i}`, artist, url: 'u', art: 'a', link: '', pop: 1 - i / 15, hit: i % 3 === 0, synth: null, genre: 'g' });
+  }
+  for (let seed = 1; seed <= 20; seed++) {
+    const easy = buildRounds(pool, mulberry32(seed), ROUND_COUNT, { level: 'easy' });
+    assert.ok(easy.every((r) => r.target.hit), 'easy: every target is a hit');
+    assert.ok(easy.every((r) => r.options.filter((o) => o.artist === r.target.artist).length === 1), 'easy: every rival is by someone else');
+    const normal = buildRounds(pool, mulberry32(seed), ROUND_COUNT, { level: 'normal' });
+    assert.ok(normal.every((r) => r.target.hit));
+    const hard = buildRounds(pool, mulberry32(seed), ROUND_COUNT, { level: 'hard' });
+    assert.ok(hard.every((r) => !r.target.hit), 'hard: deep cuts');
+    for (const r of [...easy, ...normal, ...hard]) assert.equal(r.options.length, 4);
+  }
+  // Too few hits: topped up with the most popular others, never short of rounds.
+  const thin = pool.map((t, i) => ({ ...t, hit: i < 3 }));
+  const r = buildRounds(thin, mulberry32(2), ROUND_COUNT, { level: 'normal' });
+  assert.equal(r.length, ROUND_COUNT);
+  assert.equal(r.filter((x) => x.target.hit).length, 3);
+  // Easy keeps to the friendlier warps.
+  const e = new SampleArenaEngine();
+  e.startMatch({ seats: table(0, 3), seed: 5, match: { source: 'offline', genre: 'all', level: 'easy', rounds: offlineRounds(mulberry32(5)) } });
+  assert.ok(e.rounds.slice(0, -1).every((x) => EASY_WARPS.includes(x.warp)));
+  assert.equal(e.options.level, 'easy');
 });

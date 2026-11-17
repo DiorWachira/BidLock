@@ -14,7 +14,7 @@ export const ORACLE = Object.freeze({
   chance: 0.45, // per gap between rounds, from the end of round 2
   max: 2, // per match
   introTime: 3.4,
-  questionTime: 15,
+  questionTime: 20,
   revealTime: 2.2,
   pickTime: 14,
   gambleTime: 10,

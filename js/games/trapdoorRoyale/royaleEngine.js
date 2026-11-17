@@ -21,9 +21,9 @@ export const R_RULES = Object.freeze({
   platforms: 4,
   maxContestants: 12,
   introTime: 4.5,
-  standardTime: 12,
-  speedTime: 7,
-  suddenTime: 9,
+  standardTime: 16,
+  speedTime: 10,
+  suddenTime: 12,
   lockTime: 1.5,
   dropTime: 3.4,
   recapTime: 2.2,
@@ -36,7 +36,7 @@ export const R_RULES = Object.freeze({
   scrambleAt: 3, // seconds left when the floor starts to panic
   twistFrom: 2, // first question that can carry a twist
   twistChance: 0.5,
-  blackoutShow: 5, // seconds left when the answers light up in a blackout
+  blackoutShow: 6, // seconds left when the answers light up in a blackout
 });
 
 export const PLATFORM_LETTERS = Object.freeze(['A', 'B', 'C', 'D']);

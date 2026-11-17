@@ -3,7 +3,7 @@
 import { EggcrateDisplay } from './eggcrate.js';
 import { cleanName, normalizeCode, MAX_PLAYERS } from '../net/lobbyManager.js';
 import { GAMES, gameById } from '../arcade/games.js';
-import { GENRE_CHOICES, genreById } from '../games/sampleArena/itunesLoader.js';
+import { GENRE_CHOICES, genreById, LEVELS, levelById } from '../games/sampleArena/itunesLoader.js';
 import { checkConnection, explain, summary } from '../net/netCheck.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -11,9 +11,11 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 export class LobbyView {
   // colorsFor(seats) -> css colours; summary() -> one line describing the host's settings.
-  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {} }) {
+  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {}, level = () => 'normal', onLevel = () => {} }) {
     this.defaultGame = defaultGame;
     this.genre = genre;
+    this.level = level;
+    this.onLevel = onLevel;
     this.onGenre = onGenre;
     this.lobby = lobby;
     this.saveName = saveName;
@@ -53,6 +55,8 @@ export class LobbyView {
     this.el.crates.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-genre]');
       if (b && this.lobby.isHost) this.onGenre(b.dataset.genre);
+      const l = e.target.closest('button[data-level]');
+      if (l && this.lobby.isHost) this.onLevel(l.dataset.level);
     });
     this.el.checkBtn.addEventListener('click', () => this.runCheck());
     this.el.copy.addEventListener('click', () => this._copy());
@@ -221,8 +225,9 @@ export class LobbyView {
     }).join('');
     this.el.games.dataset.host = host ? '1' : '0';
     const crate = genreById(state.genre || (host ? this.genre() : 'all')).id;
+    const lvl = levelById(state.level || (host ? this.level() : 'normal')).id;
     this.el.crates.hidden = state.game !== 'soundclash';
-    this.el.crates.innerHTML = state.game !== 'soundclash' ? '' : `<p class="lbl">SOUNDCLASH CRATE${host ? '' : ' · THE HOST PICKS'}</p>${GENRE_CHOICES.map((g) => `<button type="button" class="sc-crate" data-genre="${g.id}" aria-pressed="${g.id === crate}" ${host && !state.inMatch ? '' : 'disabled'}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}`;
+    this.el.crates.innerHTML = state.game !== 'soundclash' ? '' : `<p class="lbl">SOUNDCLASH CRATE${host ? '' : ' · THE HOST PICKS'}</p>${GENRE_CHOICES.map((g) => `<button type="button" class="sc-crate" data-genre="${g.id}" aria-pressed="${g.id === crate}" ${host && !state.inMatch ? '' : 'disabled'}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}<p class="lbl">DIFFICULTY</p><div class="sc-level-list">${LEVELS.map((l) => `<button type="button" class="sc-level" data-level="${l.id}" aria-pressed="${l.id === lvl}" ${host && !state.inMatch ? '' : 'disabled'}><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('')}</div>`;
     const seats = host ? this.lobby.seats() : [
       ...state.players.filter((p) => !p.away).map((p) => ({ name: p.name, kind: 'human', pid: p.pid })),
     ];
