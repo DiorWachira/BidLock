@@ -1255,3 +1255,15 @@ a.sc-store:hover { text-decoration: underline; }
 .lp-link[data-q="ok"] { border-color: #ffb52e; color: #ffb52e; }
 .lp-link[data-q="slow"] { border-color: #ff3b2a; color: #ff3b2a; }
 #roomchip[data-slow="1"] { border-color: #ffb52e; color: #ffb52e; }
+
+/* ---------- check my connection ---------- */
+.lobby-check-row { display: flex; justify-content: flex-start; }
+.lobby-check-row .btn { min-height: 36px; font-size: 12px; }
+.lobby-check { border: 1px solid var(--rule); border-left: 4px solid var(--rule); padding: 9px 11px; display: grid; gap: 6px; background: var(--console); }
+.lobby-check[hidden] { display: none; }
+.lobby-check[data-verdict="ok"] { border-left-color: #46e07a; }
+.lobby-check[data-verdict="warn"] { border-left-color: #ffb52e; }
+.lobby-check[data-verdict="relay"], .lobby-check[data-verdict="bad"] { border-left-color: var(--tally); }
+.lobby-check ul { display: grid; gap: 3px; font: 500 12.5px/1.35 var(--mono); color: var(--ink-2); }
+.lc-wait { font: 500 12.5px/1.4 var(--mono); color: var(--ink-3); }
+.lc-fix { font: 600 13px/1.45 var(--ui); color: var(--ink); }

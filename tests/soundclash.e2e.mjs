@@ -393,6 +393,28 @@ try {
     await ctx.close();
   }
 
+  // ---------- 4c. Check my connection, in a browser set up like Brave with WebRTC restricted
+  {
+    const strict = await chromium.launch({ args: ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] });
+    const ctx = await strict.newContext();
+    await ctx.addInitScript(() => localStorage.setItem('bidlock.guide.seen', '1'));
+    const p = await ctx.newPage();
+    const summaries = [];
+    p.on('console', (m) => { if (/\[BidLock rooms\]/.test(m.text())) summaries.push(m.text()); });
+    await p.goto(BASE + Q, { waitUntil: 'domcontentloaded' });
+    await p.waitForFunction(() => window.__bidlock && window.__bidlock.screen === 'title', null, { timeout: 30000 });
+    await p.locator('#btn-friends').click();
+    await p.locator('#lobby-check-btn').click();
+    await p.waitForFunction(() => document.querySelector('#lobby-check').dataset.verdict, null, { timeout: 20000 });
+    ok('check: a browser that forbids direct connections is caught', (await p.locator('#lobby-check').getAttribute('data-verdict')) === 'bad');
+    const text = await p.locator('#lobby-check').innerText();
+    ok('check: it says how to fix it in Brave', /not allowed to make direct connections/.test(text) && /WebRTC IP handling policy/.test(text), text);
+    ok('check: one console line sums it up', summaries.length === 1 && / host:0 stun:0 relay:0/.test(summaries[0]), summaries.join(' | '));
+    await p.locator('#lobby-check').scrollIntoViewIfNeeded();
+    await shot(p, 'lobby-check');
+    await strict.close();
+  }
+
   // ---------- 5. Phone
   {
     const ctx = await context(browser, { viewport: { width: 390, height: 844 }, mobile: true });

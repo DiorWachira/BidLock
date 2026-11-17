@@ -4,6 +4,7 @@ import { EggcrateDisplay } from './eggcrate.js';
 import { cleanName, normalizeCode, MAX_PLAYERS } from '../net/lobbyManager.js';
 import { GAMES, gameById } from '../arcade/games.js';
 import { GENRE_CHOICES, genreById } from '../games/sampleArena/itunesLoader.js';
+import { checkConnection, explain, summary } from '../net/netCheck.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -28,7 +29,7 @@ export class LobbyView {
       root: $('#lobby'), scrim: $('#lobby-scrim'), name: $('#lobby-name'), code: $('#lobby-code'),
       menu: $('#lobby-menu'), room: $('#lobby-room'), players: $('#lobby-players'), fill: $('#lobby-fill'), fillWrap: $('#lobby-fill-wrap'),
       summary: $('#lobby-summary'), games: $('#lobby-games'), crates: $('#lobby-crates'), status: $('#lobby-status'), start: $('#lobby-start'), startLabel: $('#lobby-start .b-label'),
-      create: $('#lobby-create'), join: $('#lobby-join'), copy: $('#lobby-copy'), leave: $('#lobby-leave'), close: $('#lobby-close'),
+      create: $('#lobby-create'), join: $('#lobby-join'), checkBtn: $('#lobby-check-btn'), check: $('#lobby-check'), copy: $('#lobby-copy'), leave: $('#lobby-leave'), close: $('#lobby-close'),
     };
     this.codeLamp = new EggcrateDisplay($('#ec-room'), { cols: 6, cell: 7, align: 'left', label: 'Room code' });
     this.el.name.value = loadName() || '';
@@ -53,6 +54,7 @@ export class LobbyView {
       const b = e.target.closest('button[data-genre]');
       if (b && this.lobby.isHost) this.onGenre(b.dataset.genre);
     });
+    this.el.checkBtn.addEventListener('click', () => this.runCheck());
     this.el.copy.addEventListener('click', () => this._copy());
     this.el.leave.addEventListener('click', () => { this.lobby.leave(); this.status(''); });
     this.el.start.addEventListener('click', () => { if (this.lobby.canStart()) this.onStart(); });
@@ -93,6 +95,30 @@ export class LobbyView {
     this.el.scrim.hidden = true;
     this.onClose();
     if (this.returnFocus && document.contains(this.returnFocus)) this.returnFocus.focus({ preventScroll: true });
+  }
+
+  // "Check my connection": the room server, WebRTC, STUN and the relay, in plain words.
+  async runCheck() {
+    if (this.checking) return;
+    this.checking = true;
+    const el = this.el.check;
+    this.el.checkBtn.disabled = true;
+    el.hidden = false;
+    el.dataset.verdict = '';
+    el.innerHTML = '<p class="lbl">YOUR CONNECTION</p><p class="lc-wait">Checking: the room server, this browser and this network…</p>';
+    try {
+      const r = await checkConnection();
+      const x = explain(r);
+      console.info(summary(r));
+      el.dataset.verdict = x.verdict;
+      const head = { ok: 'READY FOR ROOMS', warn: 'PROBABLY FINE', relay: 'NEEDS A RELAY ON THIS NETWORK', bad: 'BLOCKED HERE' }[x.verdict];
+      el.innerHTML = `<p class="lbl">YOUR CONNECTION · ${head}</p><ul>${x.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>${x.fix ? `<p class="lc-fix">${esc(x.fix)}</p>` : ''}`;
+    } catch (err) {
+      el.innerHTML = `<p class="lbl">YOUR CONNECTION</p><p class="lc-fix">The check could not run (${esc(err && err.message ? err.message : 'unknown')}).</p>`;
+    } finally {
+      this.checking = false;
+      this.el.checkBtn.disabled = false;
+    }
   }
 
   status(text, bad = false) {
@@ -142,6 +168,8 @@ export class LobbyView {
       this.status(`You are in room ${code}. Waiting for the host to start.`);
     } catch (err) {
       this.status(err.message || 'Could not join that room.', true);
+      // Work out why, so the player (or whoever helps them) can see it.
+      if (this.lobby.kind !== 'local') this.runCheck();
     } finally {
       this.busy = false;
       this.render(this.lobby.state);
