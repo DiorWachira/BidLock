@@ -34,7 +34,7 @@ Shared by all four: one room-code lobby (through the BidLock room server, with d
 ## The room server
 
 - `server/` is a Cloudflare Worker with one Durable Object per room code. It passes messages between the host and the players over WebSockets (so it works on networks and browsers that block WebRTC), keeps places for people who drop out, and counts messages both ways so a dropped connection loses nothing. The host's browser still runs every game.
-- Deploy it with `npm run rooms:deploy` (after `npx wrangler login`). Its address goes in `ROOM_SERVER` in `js/net/roomServer.js`. It only needs deploying again when `server/` changes; deploying the site does not touch it.
+- It was deployed to the owner's Cloudflare account on 2026-11-18; its address is `ROOM_SERVER` in `js/net/roomServer.js`. Deploy again with `npm run rooms:deploy` (after `npx wrangler login`). It only needs deploying again when `server/` changes; deploying the site does not touch it.
 - It runs on Cloudflare's free Workers plan: 100,000 Durable Object requests and 13,000 GB-seconds a day, about 25 to 30 hours of six-player rooms. When a day's allowance runs out, rooms fall back to PeerJS until midnight UTC.
 - If the site's address changes, add it to `ALLOWED_ORIGINS` in `server/wrangler.jsonc` and deploy again.
 
@@ -46,12 +46,13 @@ Shared by all four: one room-code lobby (through the BidLock room server, with d
 ## Not verified
 
 - Nobody has listened to the sound. The tests prove the audio graph runs (tier, rate, filters, a non-zero spectrum), not that it sounds good.
-- Rooms through the room server were tested on one machine: six browsers (one restricting WebRTC as Brave does, one with no WebRTC), a frozen host tab, and host connections that drop or die silently. They have not yet been tried by friends on separate networks, such as the school Wi-Fi that kept timing out.
+- Rooms through the room server were tested from one machine, against both a local copy and the deployed server: six browsers (one restricting WebRTC as Brave does, one with no WebRTC), a frozen host tab, and host connections that drop or die silently, all passing. They have not yet been tried by friends on separate networks, such as the school Wi-Fi that kept timing out.
+- From the test machine a round trip between two players through the deployed server took about 320 to 390 ms, almost all of it the machine's own route to Cloudflare (via Budapest, about 150 ms each way); the room itself added about 15 ms. The game makes up for up to 300 ms each way. Players whose network reaches a nearer Cloudflare city will see less.
 - The direct (PeerJS) fallback has no TURN relay. With the room server it should rarely matter.
 
 ## Waiting on the owner
 
-- **Deploying the room server** needs the owner's Cloudflare account (free): sign up, open Workers & Pages once, run `npx wrangler login`, then `npm run rooms:deploy` and put the address in `js/net/roomServer.js`. Until then rooms work as before, over PeerJS.
+- **A room with friends on the school Wi-Fi**, to confirm the timeouts are gone there.
 - **Hosting** can stay on GitHub Pages: the room server is separate. Moving the site to Cloudflare as well is possible but not needed.
 
 ## Decisions worth knowing

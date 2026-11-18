@@ -666,7 +666,8 @@ try {
   // ---------- 14. Real network: one WebRTC room through the public PeerJS server
   {
     const ctx = await context(browser, { media: 'off' });
-    const q = '?media=off&trivia=local&oracle=0&seed=5';
+    // Direct connections only: the room server has its own suite (rooms.e2e.mjs).
+    const q = '?media=off&trivia=local&oracle=0&seed=5&net=peer';
     const { page: host } = await page(ctx, q);
     const { page: guest } = await page(ctx, q);
     try {

@@ -3,7 +3,7 @@
 // With it, every player connects through the server: that works on any network that can
 // open a web page. PeerJS (direct WebRTC) stays as the fallback for when the server cannot
 // be reached. Empty: rooms use PeerJS only, as before.
-export const ROOM_SERVER = '';
+export const ROOM_SERVER = 'wss://bidlock-rooms.njoroge-wachira.workers.dev';
 
 // For testing without editing code:  ?rooms=ws://127.0.0.1:8787  (this page only), or
 // localStorage['bidlock.rooms'] = 'wss://...'  (this browser). "off" turns it off.

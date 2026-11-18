@@ -29,7 +29,8 @@ async function launch(extra = []) {
   throw new Error('No browser found');
 }
 
-const rooms = await startRoomServer();
+// BIDLOCK_ROOMS=wss://... runs the same checks against a deployed room server instead.
+const rooms = process.env.BIDLOCK_ROOMS ? { ws: process.env.BIDLOCK_ROOMS, stop: async () => {} } : await startRoomServer();
 const server = createServer();
 await new Promise((r) => server.listen(0, r));
 const BASE = `http://localhost:${server.address().port}/`;
@@ -66,6 +67,20 @@ async function page(ctx) {
 const shot = (p, name) => p.screenshot({ path: path.join(SHOTS, `${name}.png`) });
 const lobbyOf = (p) => p.evaluate(() => { const s = window.__bidlock.lobby.state; return { status: s.status, n: s.players.length, via: s.via, away: s.hostAway, inMatch: s.inMatch }; });
 
+// What the host saw: the phase, a seat's state, its link, and the last inputs received.
+async function readout(seat) {
+  try {
+    return JSON.stringify(await hostPage.evaluate((x) => {
+      const e = window.__bidlock.arcade && window.__bidlock.arcade.engine;
+      const p = e && e.players[x];
+      const t = window.__bidlock.lobby.transport;
+      const link = t && (t.relay ? t.relay.link : t.link);
+      return { phase: e && e.phase, t: e && +e.t.toFixed(2), seat: p && { alive: p.alive, choice: p.choice, call: p.call }, blocked: e && e.blocked, link: link && { ready: link.ready, got: link.got, sent: link.sent, epoch: link.epoch }, inputs: (window.__inputs || []).slice(-8) };
+    }, seat));
+  } catch (err) { return `(no readout: ${err.message.split('\n')[0]})`; }
+}
+let hostPage = null;
+
 const browser = await launch();
 // Like Brave's "Disable non-proxied UDP": WebRTC cannot make direct connections.
 const strict = await launch(['--force-webrtc-ip-handling-policy=disable_non_proxied_udp']);
@@ -76,6 +91,7 @@ try {
   const hostCtx = await context(browser);
   contexts.push(hostCtx);
   const { page: host, errors: hostErrors } = await page(hostCtx);
+  hostPage = host;
   await host.locator('.channel[data-game="royale"]').click();
   await host.locator('#btn-friends').click();
   await host.locator('#lobby-name').fill('Alpha');
@@ -116,6 +132,13 @@ try {
   await c.waitForFunction(() => document.querySelector('#lobby-check').dataset.verdict, null, { timeout: 20000 });
   ok('check my connection: ready even with WebRTC switched off', (await c.locator('#lobby-check').getAttribute('data-verdict')) === 'ok');
 
+  // Every input the host receives, with the game's phase, for the readout of a failed check.
+  await host.evaluate(() => {
+    const l = window.__bidlock.lobby;
+    const orig = l.onInput;
+    window.__inputs = [];
+    l.onInput = (seat, m) => { const a = window.__bidlock.arcade; window.__inputs.push(`${seat}:${m.t}/${m.a || ''}/${m.to ?? ''}@${a ? a.engine.phase : '-'}`); orig(seat, m); };
+  });
   await host.locator('#lobby-start').click();
   await Promise.all(guests.map((g) => g.page.waitForFunction(() => window.__bidlock.arcade && window.__bidlock.arcade.engine.phase === 'QUESTION', null, { timeout: 30000 })));
   ok('Trapdoor Royale starts for all six', true);
@@ -131,12 +154,13 @@ try {
   await host.waitForTimeout(6000);
   ok('guests stay in the room while the host is frozen', (await Promise.all(guests.map((g) => lobbyOf(g.page)))).every((s) => s.status === 'open' && s.inMatch));
   await cdp.send('Page.setWebLifecycleState', { state: 'active' });
-  await host.waitForFunction(() => window.__bidlock.arcade.engine.players[2].choice === 1, null, { timeout: 8000 }).then(() => ok('an answer sent during the freeze arrives when the host wakes', true), () => ok('an answer sent during the freeze arrives when the host wakes', false));
+  await host.waitForFunction(() => window.__bidlock.arcade.engine.players[2].choice === 1, null, { timeout: 8000 }).then(() => ok('an answer sent during the freeze arrives when the host wakes', true), async () => ok('an answer sent during the freeze arrives when the host wakes', false, await readout(2)));
 
   // ---------- 3. The host's connection drops mid-match, and comes back by itself
-  // Each drill starts on a fresh question, so there is time to answer while the host is
-  // away. The answer comes from a guest still in the game (an eliminated player's tap is
-  // only a "call"), on a platform that has not crumbled.
+  // Both drills run on one fresh question, with the host's game clock held still, so they
+  // test the connection rather than how long a question lasts (over a real network a drill
+  // can take longer than a question). The answers come from a guest still in the game (an
+  // eliminated player's tap is only a "call"), on platforms that have not crumbled.
   async function freshQuestion() {
     await host.evaluate(() => {
       const e = window.__bidlock.arcade.engine;
@@ -146,16 +170,24 @@ try {
     const t = await host.evaluate(() => {
       const e = window.__bidlock.arcade.engine;
       const seat = e.players.findIndex((x, i) => i > 0 && x.alive && x.isHuman);
-      return { seat: seat > 0 ? seat : 4, alive: seat > 0, p: [3, 2, 1, 0].find((x) => x !== e.blocked) };
+      const open = [3, 2, 1, 0].filter((x) => x !== e.blocked);
+      return { seat: seat > 0 ? seat : 4, alive: seat > 0, p: open[0], p2: open[1] };
     });
     t.page = guests[t.seat - 1].page;
     await t.page.waitForFunction(() => window.__bidlock.arcade.engine.phase === 'QUESTION', null, { timeout: 8000 }).catch(() => {});
     return t;
   }
   const counted = (t) => host.waitForFunction(({ seat, alive, p }) => window.__bidlock.arcade.engine.players[seat][alive ? 'choice' : 'call'] === p, { seat: t.seat, alive: t.alive, p: t.p }, { timeout: 10000 }).then(() => true, () => false);
+  const countedOr = async (name, t) => { const yes = await counted(t); ok(name, yes, yes ? null : `${JSON.stringify({ seat: t.seat, alive: t.alive, p: t.p })} ${await readout(t.seat)}`); };
 
   // a) The connection breaks and the room server sees it go: the guests are told.
-  let t = await freshQuestion();
+  const t = await freshQuestion();
+  const hold = (on) => host.evaluate((x) => {
+    const e = window.__bidlock.arcade.engine;
+    if (!e.__update) { e.__update = e.update.bind(e); e.update = (dt) => { if (!window.__hold) e.__update(dt); }; }
+    window.__hold = x;
+  }, on);
+  await hold(true);
   wsErrorsExpected = true;
   await host.evaluate(() => { const link = window.__bidlock.lobby.transport.relay.link; window.__roomUrl = link.url; link.url = 'ws://127.0.0.1:9/room/x'; link._drop(); });
   await Promise.all(guests.map((g) => g.page.waitForFunction(() => window.__bidlock.lobby.state.hostAway, null, { timeout: 8000 }))).then(() => ok('guests are told the host is away', true), () => ok('guests are told the host is away', false));
@@ -166,12 +198,12 @@ try {
   await host.waitForTimeout(2500);
   await host.evaluate(() => { window.__bidlock.lobby.transport.relay.link.url = window.__roomUrl; window.dispatchEvent(new Event('online')); });
   await Promise.all(guests.map((g) => g.page.waitForFunction(() => !window.__bidlock.lobby.state.hostAway, null, { timeout: 15000 }))).then(() => ok('the host reconnects and the guests see them back', true), () => ok('the host reconnects and the guests see them back', false));
-  ok('an answer sent while the host was away still counts', await counted(t));
+  await countedOr('an answer sent while the host was away still counts', t);
   wsErrorsExpected = false;
 
   // b) The connection dies silently (the browser goes offline): the room server cannot
   // tell, and keeps sending to a dead socket. Counting and resending make up for it.
-  t = await freshQuestion();
+  t.p = t.p2; // a second answer, on the same question
   wsErrorsExpected = true;
   await hostCtx.setOffline(true);
   await host.evaluate(() => window.__bidlock.lobby.transport.relay.link._drop());
@@ -179,8 +211,9 @@ try {
   await host.waitForTimeout(1500);
   await hostCtx.setOffline(false);
   await host.evaluate(() => window.dispatchEvent(new Event('online')));
-  ok('an answer lost in a dead connection is resent and counts', await counted(t));
+  await countedOr('an answer lost in a dead connection is resent and counts', t);
   wsErrorsExpected = false;
+  await hold(false);
   ok('nobody lost their seat', (await host.evaluate(() => window.__bidlock.lobby.state.players.filter((p) => !p.away).length)) === 6);
   // The match carries on for everyone.
   const before = await guests[4].page.evaluate(() => window.__bidlock.arcade.engine.round || 0);

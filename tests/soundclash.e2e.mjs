@@ -455,7 +455,8 @@ try {
     const p = await ctx.newPage();
     const summaries = [];
     p.on('console', (m) => { if (/\[BidLock rooms\]/.test(m.text())) summaries.push(m.text()); });
-    await p.goto(BASE + Q, { waitUntil: 'domcontentloaded' });
+    // Without the room server, which would make every network fine (rooms.e2e.mjs checks that).
+    await p.goto(`${BASE}${Q}&rooms=off`, { waitUntil: 'domcontentloaded' });
     await p.waitForFunction(() => window.__bidlock && window.__bidlock.screen === 'title', null, { timeout: 30000 });
     await p.locator('#btn-friends').click();
     await p.locator('#lobby-check-btn').click();
