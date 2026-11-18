@@ -19,6 +19,7 @@ import { Guide, HelpDrawer } from './ui/guide.js';
 import { LobbyView } from './ui/lobbyView.js';
 import { MediaLoader } from './utils/mediaLoader.js';
 import { LobbyManager, WIRE, wireType, packEvent, unpackEvent, EMOTES } from './net/lobbyManager.js';
+import { roomServerUrl } from './net/roomServer.js';
 import { GAMES, gameById } from './arcade/games.js';
 import { botSeats } from './arcade/bots.js';
 import { GENRE_CHOICES, genreById, LEVELS, levelById } from './games/sampleArena/itunesLoader.js';
@@ -47,6 +48,8 @@ const debug = {
   triviaLocal: params.get('trivia') === 'local',
   mediaOff: params.get('media') === 'off',
   netLocal: params.get('net') === 'local',
+  // ?net=relay: the room server only; ?net=peer: direct WebRTC only. Default: both.
+  net: ['relay', 'peer'].includes(params.get('net')) ? params.get('net') : 'auto',
   lag: Math.max(0, Math.min(2000, Number(params.get('lag')) || 0)), // ms of simulated delay on ?net=local
   musicOffline: params.get('music') === 'offline',
 };
@@ -308,7 +311,8 @@ function heroAttract(dt) {
 
 // ---------- the room ----------
 const lobby = new LobbyManager({
-  transport: debug.netLocal ? 'local' : 'peer',
+  transport: debug.netLocal ? 'local' : debug.net,
+  relayUrl: roomServerUrl(),
   lag: debug.lag,
   onState: (state) => {
     // A new room starts with this device's Soundclash crate.
@@ -376,9 +380,13 @@ function renderRoomChip() {
   if (!chip || state.status !== 'open' || state.role == null) return;
   const n = state.players.filter((p) => !p.away).length;
   const ms = lobby.isClient ? (lobby.latencyMs(state.you) ?? (lobby.myRtt ? Math.round(lobby.myRtt * 1000) : null)) : null;
-  chip.textContent = `ROOM ${state.code} · ${n}${ms ? ` · ${ms} ms` : ''}`;
-  chip.dataset.slow = ms != null && ms >= 250 ? '1' : '0';
-  chip.title = ms ? `Round trip to the host: ${ms} ms. The host makes up for delays up to 300 ms each way.` : '';
+  // A player whose host has dropped out: the room holds everyone's places until they are back.
+  const away = lobby.isClient && state.hostAway;
+  chip.textContent = away ? `ROOM ${state.code} · HOST AWAY` : `ROOM ${state.code} · ${n}${ms ? ` · ${ms} ms` : ''}`;
+  chip.dataset.slow = away || (ms != null && ms >= 250) ? '1' : '0';
+  const via = state.via === 'relay' ? 'Connected through the BidLock room server.' : state.via === 'peer' ? 'Connected directly (peer to peer).' : '';
+  chip.title = away ? 'The host has lost their connection. The room is keeping everyone’s places until they are back.'
+    : `${ms ? `Round trip to the host: ${ms} ms. The host makes up for delays up to 300 ms each way. ` : ''}${via}`.trim();
 }
 setInterval(renderRoomChip, 2000);
 

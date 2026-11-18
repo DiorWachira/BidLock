@@ -10,7 +10,7 @@ Every lot is shown with a real photograph, in a glass-and-gold frame on a 3D auc
 
 The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, and a music game, **Soundclash**, that warps three seconds of a real song and asks you to name it. A room can move between all four without re-entering the code.
 
-It is a static site: plain HTML, CSS and ES modules. There is no build step, no server of ours, and no API key.
+It is a static site: plain HTML, CSS and ES modules, with no build step and no API key. Rooms go through a small room server of its own (`server/`, a Cloudflare Worker), with direct browser-to-browser connections as the fallback.
 
 ![Bidding on a lot](screenshots/game-dark.png)
 
@@ -234,7 +234,12 @@ Two to six people can play. There is no pausing or fast-forward in a room, and t
 
 ### How it works
 
-The host's browser runs the only real auction engine. Every other player connects straight to it over a WebRTC data channel, using [PeerJS](https://peerjs.com/) and its free public signalling server to find each other. Guests send small inputs; the host checks each one against the rules and broadcasts every engine event with a snapshot of the match. A guest's browser rebuilds a read-only mirror of the engine from each snapshot, so the same HUD, stage and sound code runs for everyone.
+The host's browser runs the only real game engine. Every other player reaches it in one of two ways:
+
+- **Through the BidLock room server** (`server/`, described below): every player keeps a WebSocket to the room, and the server only passes messages between the host and the players. A WebSocket is an ordinary HTTPS connection, so this works on any network that can open a web page, including school Wi-Fi that keeps devices apart, strict mobile networks, and browsers that block WebRTC.
+- **Directly over WebRTC**, using [PeerJS](https://peerjs.com/) and its free public signalling server, when the room server is not set up or cannot be reached. The host opens every room on both, so a guest whose network blocks the room server can still come in directly.
+
+Guests send small inputs; the host checks each one against the rules and broadcasts every engine event with a snapshot of the match. A guest's browser rebuilds a read-only mirror of the engine from each snapshot, so the same HUD, stage and sound code runs for everyone.
 
 | Host to everyone | Player to host |
 | --- | --- |
@@ -242,7 +247,9 @@ The host's browser runs the only real auction engine. Every other player connect
 
 A player's seat is taken from their connection, never from the message, and the answer to an Oracle question is not sent to the room until it has been given.
 
-**Joining is patient.** A guest retries for about 50 seconds before giving up, and the lobby says what is happening ("Still connecting… try 2 of 4"). This covers the most common failure: a host on a phone who switches to a messaging app to send the code. That pauses the page and takes the room off the signalling server, so friends joining at that moment cannot get in. The host reconnects as soon as they come back, and the waiting guests get in then. The host's lobby says so: send the code, then come back.
+**Riding out drops.** Through the room server, a dropped connection reconnects by itself and carries on. The room keeps a host's place for five minutes and a player's for one, and holds what was sent to them meanwhile. Both ends count the messages they receive, so on reconnecting each side resends what the other missed: even a connection that died without anyone noticing (a phone changing networks) loses nothing. While the host is away, guests see HOST AWAY on their room chip, and a friend who joins with the code waits at the door for up to three minutes ("you will be let in as soon as they are back") instead of timing out. That covers the most common failure in a party: a host on a phone who switches to a messaging app to send the code.
+
+**Joining over PeerJS is patient.** A guest retries for about 50 seconds before giving up, and the lobby says what is happening ("Still connecting… try 2 of 4"). This covers the most common failure: a host on a phone who switches to a messaging app to send the code. That pauses the page and takes the room off the signalling server, so friends joining at that moment cannot get in. The host reconnects as soon as they come back, and the waiting guests get in then. The host's lobby says so: send the code, then come back.
 
 **Smoothing the link for guests.** Everything a guest sees has crossed the network, so the room measures each player's delay and makes up for it:
 
@@ -254,14 +261,44 @@ A player's seat is taken from their connection, never from the message, and the 
 
 To try a slow link without one, add `?net=local&lag=150` to two tabs: every message is held back 150 ms each way.
 
-**Check my connection.** The lobby has a button that checks, in plain words, everything a room needs: whether the room server answers, whether this browser allows WebRTC, whether the network lets the connection helper (STUN) through, and whether a relay is available. It ends with what to do. It also runs by itself when a join fails, and writes one line to the browser console (starting `[BidLock rooms]`) that sums it up for whoever is helping. Two common causes it catches:
+**Check my connection.** The lobby has a button that checks, in plain words, everything a room needs. First, whether the BidLock room server answers: if it does, rooms work from that device and the check says so. Otherwise it checks the direct route: whether PeerJS's server answers, whether this browser allows WebRTC, whether the network lets the connection helper (STUN) through, and whether a relay is available. It ends with what to do. It also runs by itself when a join fails, and writes one line to the browser console (starting `[BidLock rooms]`) that sums it up for whoever is helping. Two common causes it catches:
 
-- **Brave, uBlock Origin or a VPN restricting WebRTC.** Brave's "WebRTC IP handling policy" set to "Disable non-proxied UDP", which uBlock Origin's "Prevent WebRTC from leaking local IP addresses" turns on, stops direct connections entirely. The fix is to set the policy back to Default or untick that option. A relay that works over TCP also gets round it.
-- **School or office Wi-Fi that keeps devices apart.** Everyone can be on the same Wi-Fi while one device still cannot reach the host. That needs a relay; a phone hotspot works meanwhile.
+- **Brave, uBlock Origin or a VPN restricting WebRTC.** Brave's "WebRTC IP handling policy" set to "Disable non-proxied UDP", which uBlock Origin's "Prevent WebRTC from leaking local IP addresses" turns on, stops direct connections entirely. The room server gets round it; without the room server, the fix is to set the policy back to Default or untick that option.
+- **School or office Wi-Fi that keeps devices apart.** Everyone can be on the same Wi-Fi while one device still cannot reach the host directly. The room server gets round it too.
 
-**Strict networks need a relay.** Browsers connect directly, with STUN servers (Google's and Cloudflare's) to find each other. A player behind a strict NAT, which is common on mobile data and some office or campus networks, cannot connect directly and needs a TURN relay. PeerJS used to bundle free TURN servers, but those hostnames no longer exist, so BidLock ships with no relay. To add one, sign up for a TURN provider with a free tier and either paste the servers it gives you into `TURN_SERVERS` in `js/net/iceServers.js` (ExpressTURN's free plan, 1 TB a month, gives one fixed username and password), or put its credentials URL in `TURN_CREDENTIALS_URL` (Metered's free plan, 20 GB a month, gives an API key and a URL that returns the servers). This is a static site, so those credentials are public: use the provider's restricted, low-quota ones. For a quick test without editing code, set `localStorage['bidlock.turn']` to the same list as JSON. When a direct connection fails, the joining player is told it is their network, not the code.
+**TURN, if direct connections ever need one.** The room server makes a TURN relay unnecessary, but the hooks remain for the direct route. Browsers connect directly with STUN servers (Google's and Cloudflare's) to find each other; a player behind a strict NAT cannot, and would need a TURN relay. PeerJS used to bundle free TURN servers, but those hostnames no longer exist. To add one, sign up for a TURN provider with a free tier and either paste the servers it gives you into `TURN_SERVERS` in `js/net/iceServers.js` (ExpressTURN's free plan, 1 TB a month, gives one fixed username and password), or put its credentials URL in `TURN_CREDENTIALS_URL` (Metered's free plan, 20 GB a month, gives an API key and a URL that returns the servers). This is a static site, so those credentials are public: use the provider's restricted, low-quota ones. For a quick test without editing code, set `localStorage['bidlock.turn']` to the same list as JSON. When a direct connection fails, the joining player is told it is their network, not the code.
 
 The public PeerJS signalling server is a shared free service and is occasionally busy. If the host's tab is in the background during a match, the match keeps running, but browsers slow background timers, so the host should keep the tab in front.
+
+### The room server
+
+| Check my connection, on a browser that blocks WebRTC | A guest while the host's connection is down |
+| --- | --- |
+| ![Ready for rooms](screenshots/lobby-rooms-check.png) | ![HOST AWAY](screenshots/room-host-away.png) |
+
+`server/` is a [Cloudflare Worker](https://developers.cloudflare.com/workers/) with one [Durable Object](https://developers.cloudflare.com/durable-objects/) per room code: a small, single-threaded object that every player in that room connects to. It decides nothing about the game. It passes the host's messages to the players and the players' messages to the host (one copy of a broadcast goes up, and the server hands out the rest), keeps places for people who drop out, and holds and resends what they missed. Only BidLock's own pages may open rooms (the live site, and localhost for development), players' messages are size- and rate-limited, and a room ends when its host leaves or does not come back.
+
+It runs on Cloudflare's free Workers plan, which includes 100,000 Durable Object requests and 13,000 GB-seconds a day; incoming WebSocket messages count 20 to a request and outgoing ones are free ([pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)). An hour of a six-player room uses roughly 2,000 requests and 450 GB-seconds, so the free plan covers about 25 to 30 hours of rooms a day. If a day's allowance runs out, new rooms cannot reach the server until midnight UTC and fall back to direct connections by themselves.
+
+**Setting it up** (once, about five minutes):
+
+1. Make a free Cloudflare account at https://dash.cloudflare.com/sign-up, and open **Workers & Pages** once so the account gets its `workers.dev` subdomain.
+2. In this folder, sign in to Cloudflare from the command line (it opens the browser to approve):
+
+   ```bash
+   npx wrangler login
+   ```
+
+3. Deploy the room server:
+
+   ```bash
+   npm run rooms:deploy
+   ```
+
+   It prints the address, like `https://bidlock-rooms.<your-subdomain>.workers.dev`.
+4. Put that address in `ROOM_SERVER` in `js/net/roomServer.js` and push to `main`. To try it first without editing anything, add `?rooms=<that address>` to the page's URL.
+
+If the site moves to another address, add it to `ALLOWED_ORIGINS` in `server/wrangler.jsonc` and deploy again. To run the room server on your own machine, `npm run rooms:dev` starts it on port 8787; open the game with `?rooms=ws://127.0.0.1:8787`.
 
 ## Controls
 
@@ -328,7 +365,9 @@ flowchart LR
   E -- events --> M
   M -- inputs --> E
   M <--> L
-  L -. WebRTC .- L2[other players]
+  L -. WebSocket .- R[server/<br/>room server]
+  R -. WebSocket .- L2[other players]
+  L -. WebRTC fallback .- L2
   M --> H
   M --> S
   M --> O
@@ -351,7 +390,11 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/engine/auctionEngine.js` | Budget rules, shot clock, crates, vault, heist, scoring, snapshots |
 | `js/engine/aiBidders.js` | LEDGER, HAVOC, THRIFT: valuation, timing, bluffing, banter |
 | `js/engine/triviaSteal.js` | The Oracle state machine, Open Trivia DB loader, fallback bank |
-| `js/net/lobbyManager.js` | Room codes, PeerJS and loopback transports, lobby, wire format |
+| `js/net/lobbyManager.js` | Room codes, the transports (room server first, then PeerJS; loopback for tests), lobby, wire format |
+| `js/net/relayTransport.js` | The room server connection: reconnecting, message counting and resending |
+| `js/net/roomServer.js` | Where the room server is |
+| `js/net/netCheck.js` | "Check my connection" |
+| `server/src/index.js` | The room server: the Worker and its Durable Object |
 | `js/utils/mediaLoader.js` | Wikipedia lookups, image loading, illustrated fallback cards |
 | `js/render/stage3d.js` | Studio set, photo frames, gavel, podiums, particles, cameras |
 | `js/audio/soundEngine.js` | Gavel, ticks, heartbeat, siren, buzzer, stings, backing track |
@@ -408,6 +451,8 @@ npm test
 ```
 
 - `tests/arcade.test.mjs` runs in plain Node: 150 simulated matches of each quiz game at tables of 2 to 12, checking that exactly one champion is left, that all seven survival games, six twists and five kinds of weather turn up, that no question repeats across ten matches on one device, that the lamp never goes fully dark, that secrets stay out of snapshots, and that a guest's mirror agrees with the host.
+- `tests/rooms.test.mjs` runs the room server in Cloudflare's local runtime (`wrangler dev`) and talks to it from Node: hosting and joining, messages both ways, a full room, only BidLock's pages allowed, players and hosts dropping and coming back, connections that die silently (nothing lost either way, nothing repeated), a player waiting at the door for an absent host, six whole lobbies, and the fallback to PeerJS.
+- `tests/rooms.e2e.mjs` puts six real browsers in one room through the room server: one on a browser that restricts WebRTC as Brave does, one with WebRTC switched off, one on a 390 px phone. It plays Trapdoor Royale with a host whose tab is frozen, a host whose connection drops (the guests see HOST AWAY), and one whose connection dies silently, and checks that every answer still counts. It runs against a local copy of the room server; `BIDLOCK_ROOMS=wss://<address> node tests/rooms.e2e.mjs` runs the same checks against a deployed one.
 - `tests/net.test.mjs` runs in plain Node: snapshot deltas that rebuild exactly (and save over half the bytes), ping measurement and its cap, the hammer's grace for a slow guest, back-dated answers, and fetched relay credentials.
 - `tests/soundclash.test.mjs` runs in plain Node: the crate digger against fake iTunes answers (filtering, artwork, eight fair rounds, the offline fallback), the scoring, 200 bot matches with every invariant, sabotage rules, secrets in snapshots, the synth tunes, and the seamless loop maker.
 - `tests/soundclash.e2e.mjs` drives the browser through the crate picker, all three audio tiers (a served WAV with CORS, the same file refused to `fetch`, and iTunes blocked), every sabotage, overtime, the reveal and the podium, a two-player room with a crate pick, and a 390 px phone.
@@ -415,9 +460,9 @@ npm test
 - `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
 - `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.
 
-`playwright-core` is the only dependency and is only needed for the browser tests.
+The only dependencies, both for development, are `playwright-core` for the browser tests and `wrangler`, Cloudflare's tool, to run and deploy the room server.
 
-Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation, `?music=offline` plays Soundclash from the offline synth crate, `?lag=150` (with `?net=local`) delays every room message by 150 ms each way.
+Handy URL switches: `?seed=42` fixes the match, `?speed=4` runs the clock faster, `?auto=1` lets a simple autopilot play your seat, `?oracle=1` makes the Oracle appear whenever it can (`?oracle=0` never), `?trivia=local` uses only the built-in questions, `?media=off` uses only illustrated cards, `?net=local` shares rooms between tabs of one browser with no network, `?guide=off` hides the first-visit invitation, `?music=offline` plays Soundclash from the offline synth crate, `?lag=150` (with `?net=local`) delays every room message by 150 ms each way, `?net=relay` uses only the room server and `?net=peer` only direct connections, `?rooms=<address>` points rooms at another room server (`?rooms=off` for none).
 
 ## Deploy
 
@@ -432,9 +477,11 @@ The empty `.nojekyll` file tells Pages to serve the files as they are.
 
 **Netlify or Vercel**: import the repository, leave the build command empty and set the publish directory to the repository root.
 
+**The room server** is deployed separately, with `npm run rooms:deploy` (see [The room server](#the-room-server)). Deploying the site does not touch it, and it only needs deploying again when `server/` changes.
+
 ## Notes
 
-- **What is fetched from the network:** Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, and Soundclash's songs, previews and artwork from Apple's iTunes Search API. All three have built-in fallbacks. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
+- **What is fetched from the network:** the room server (only in a room), Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, and Soundclash's songs, previews and artwork from Apple's iTunes Search API. All three have built-in fallbacks. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
 - **Slow graphics.** If frames run slow the stage lowers its resolution and turns shadows off by itself.
 - **Sound starts on your first click or key press**, because browsers do not allow audio before that.
 

@@ -1,11 +1,14 @@
 // BIDLOCK 2.0 — room-code multiplayer.
 //
-// One player hosts. Their browser runs the only real auction engine and is the single
-// source of truth. Everyone else connects straight to the host over a WebRTC data
-// channel (PeerJS, using its free public signalling server), sends small input messages,
-// and receives each engine event with a snapshot of the match.
+// One player hosts. Their browser runs the only real game engine and is the single
+// source of truth. Everyone else sends small input messages to the host and receives
+// each engine event with a snapshot of the match.
 //
-// There is no server of ours anywhere: the site stays 100% static.
+// How they reach the host:
+//   - through the BidLock room server (server/, a Cloudflare Worker), by WebSocket. It
+//     only passes messages along, and works on any network that can open a web page;
+//   - or straight to the host over WebRTC (PeerJS), when the room server is not set up
+//     or cannot be reached. A host opens the room on both, so either way works.
 //
 // Host -> everyone:  NEW_LOT, BID_PLACED, TIMER_TICK, LOT_SOLD, TRIVIA_STEAL_TRIGGERED,
 //                    HEIST_ACTION, FINAL_RESULTS, EVENT (everything else), LOBBY, START
@@ -16,6 +19,7 @@ import { PERSONAS } from '../engine/aiBidders.js';
 import { GAMES, gameById } from '../arcade/games.js';
 import { botSeats } from '../arcade/bots.js';
 import { iceServers, hasRelay, loadIceServers } from './iceServers.js';
+import { RelayTransport } from './relayTransport.js';
 
 export const WIRE = Object.freeze({
   // host -> players
@@ -148,6 +152,8 @@ function withTimeout(promise, ms, message) {
 // to a messaging app to send the code (their page is paused until they come back), a
 // slow mobile line, and the signalling server's own hiccups.
 const LOAD_MS = 20000;
+const HELLO_WAIT_MS = 10000; // for the host to let a new player in
+const HOST_AWAY_WAIT_MS = 180000; // ...when the room server says the host is away
 const JOIN_ATTEMPT_MS = 12000;
 const JOIN_ATTEMPTS = 4;
 let peerModule = null; // one download per page, shared by every transport
@@ -219,8 +225,10 @@ class PeerTransport {
     }), 20000, 'The room server did not answer. Try again in a moment.');
   }
 
-  // onProgress(attempt, of, why) is called before every retry.
-  async join(code, { onProgress = () => {} } = {}) {
+  // onProgress(attempt, of, why) is called before every retry. attempts: fewer tries,
+  // when the room server has already said there is no such room.
+  async join(code, { onProgress = () => {}, attempts = JOIN_ATTEMPTS } = {}) {
+    const JOIN_TRIES = Math.max(1, attempts);
     const Peer = await this._load();
     await loadIceServers();
     const target = PEER_PREFIX + code.toLowerCase();
@@ -236,8 +244,8 @@ class PeerTransport {
     }), 15000, 'The room server did not answer. Check your connection.');
 
     let lastWhy = 'timeout';
-    for (let attempt = 1; attempt <= JOIN_ATTEMPTS; attempt++) {
-      if (attempt > 1) onProgress(attempt, JOIN_ATTEMPTS, lastWhy);
+    for (let attempt = 1; attempt <= JOIN_TRIES; attempt++) {
+      if (attempt > 1) onProgress(attempt, JOIN_TRIES, lastWhy);
       if (peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch { /* next attempt */ } }
       peerErrors.length = 0;
       const result = await new Promise((resolve) => {
@@ -259,10 +267,10 @@ class PeerTransport {
       if (result.conn) return this._wrap(result.conn);
       lastWhy = result.why;
       // Give a paused host a moment to come back before the next try.
-      if (attempt < JOIN_ATTEMPTS) await new Promise((r) => setTimeout(r, result.why === 'no-room' ? 2500 : 600));
+      if (attempt < JOIN_TRIES) await new Promise((r) => setTimeout(r, result.why === 'no-room' ? 2500 : 600));
     }
     const relay = hasRelay();
-    console.warn(`[BidLock rooms] join ${code} failed after ${JOIN_ATTEMPTS} tries: ${lastWhy}; relay configured: ${relay ? 'yes' : 'no'}`);
+    console.warn(`[BidLock rooms] join ${code} failed after ${JOIN_TRIES} tries: ${lastWhy}; relay configured: ${relay ? 'yes' : 'no'}`);
     if (lastWhy === 'no-room') throw new Error(`No room with the code ${code}. Check it with the host, and make sure they still have BidLock open.`);
     if (lastWhy === 'ice') {
       throw new Error(relay
@@ -280,6 +288,64 @@ class PeerTransport {
     }
     try { if (this.peer) this.peer.destroy(); } catch { /* already gone */ }
     this.peer = null;
+  }
+}
+
+// The room server first, PeerJS as the fallback.
+//   host: opens the room on the server and, in the background, on PeerJS too, so a
+//         guest whose network blocks the server can still get in directly.
+//   join: through the server; if it cannot be reached, or does not know the room (its
+//         host could not reach it), directly over PeerJS.
+export class AutoTransport {
+  constructor(relayUrl, { relay = null, peer = null } = {}) {
+    this.relay = relay || new RelayTransport(relayUrl);
+    this.peer = peer || new PeerTransport();
+    this.via = null;
+  }
+
+  async host(code, onConnection) {
+    try {
+      await this.relay.host(code, onConnection);
+      this.via = 'relay';
+    } catch (err) {
+      this.relay.close();
+      if (err.message === 'taken') throw err;
+    }
+    const direct = this.peer.host(code, onConnection);
+    if (this.via) { direct.catch(() => this.peer.close()); return; }
+    await direct;
+    this.via = 'peer';
+  }
+
+  async join(code, opts = {}) {
+    let first;
+    try {
+      const conn = await this.relay.join(code, opts);
+      this.via = 'relay';
+      return conn;
+    } catch (err) {
+      this.relay.close();
+      if (err.code === 'full') throw err;
+      first = err;
+    }
+    try {
+      const conn = await this.peer.join(code, first.code === 'no-room' ? { ...opts, attempts: 2 } : opts);
+      this.via = 'peer';
+      return conn;
+    } catch (err) {
+      if (first.code === 'unreachable') err.message += ' (The BidLock room server could not be reached from this network either.)';
+      throw err;
+    }
+  }
+
+  sendMany(list, o) {
+    if (this.via === 'relay' || this.relay.link) this.relay.sendMany(list, o);
+    else for (const c of list) c.send(o);
+  }
+
+  close() {
+    this.relay.close();
+    this.peer.close();
   }
 }
 
@@ -353,10 +419,13 @@ class LocalTransport {
 
 // ---------- the lobby ----------
 export class LobbyManager {
-  // transport: 'peer' (WebRTC) or 'local' (same-browser loopback).
+  // transport: 'auto' (the room server, else WebRTC), 'relay' (the room server only),
+  //            'peer' (WebRTC only) or 'local' (same-browser loopback).
+  // relayUrl: the room server; without one, 'auto' and 'relay' use WebRTC.
   // lag: milliseconds of simulated one-way delay on the local transport (tests).
-  constructor({ transport = 'peer', onState = () => {}, onMessage = () => {}, onInput = () => {}, onClosed = () => {}, lag = 0 } = {}) {
+  constructor({ transport = 'auto', relayUrl = '', onState = () => {}, onMessage = () => {}, onInput = () => {}, onClosed = () => {}, lag = 0 } = {}) {
     this.kind = transport;
+    this.relayUrl = relayUrl || '';
     this.simLag = Math.max(0, Number(lag) || 0);
     this.rtt = new Map(); // host: player id -> smoothed round trip, seconds (shown)
     this.rttSamples = new Map(); // host: player id -> the last few round trips, seconds
@@ -377,11 +446,13 @@ export class LobbyManager {
   }
 
   _blank() {
-    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null, level: null };
+    // via: how this browser is connected ('relay', 'peer' or 'local').
+    // hostAway: a player: the host's connection has dropped and the room is waiting for them.
+    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null, level: null, via: null, hostAway: false };
   }
 
   // Start downloading the multiplayer library before anyone presses a button.
-  warm() { if (this.kind !== 'local') warmPeer(); }
+  warm() { if (this.kind !== 'local' && !(this.kind === 'relay' && this.relayUrl)) warmPeer(); }
 
   get isHost() { return this.state.role === 'host'; }
   get isClient() { return this.state.role === 'client'; }
@@ -393,7 +464,14 @@ export class LobbyManager {
   }
 
   _newTransport() {
-    return this.kind === 'local' ? new LocalTransport({ lag: this.simLag }) : new PeerTransport();
+    if (this.kind === 'local') return new LocalTransport({ lag: this.simLag });
+    if (this.relayUrl && this.kind === 'relay') return new RelayTransport(this.relayUrl);
+    if (this.relayUrl && this.kind === 'auto') return new AutoTransport(this.relayUrl);
+    return new PeerTransport();
+  }
+
+  _via(transport) {
+    return transport.via || (this.kind === 'local' ? 'local' : 'peer');
   }
 
   _uniqueName(name, exceptPid = null) {
@@ -416,7 +494,7 @@ export class LobbyManager {
       try {
         await transport.host(code, (conn) => this._onPlayerConnection(conn));
         this.transport = transport;
-        this._set({ status: 'open', code, you: 'host', players: [{ pid: 'host', name: cleanName(name, 'HOST'), host: true, seat: 0, away: false }] });
+        this._set({ status: 'open', code, you: 'host', via: this._via(transport), players: [{ pid: 'host', name: cleanName(name, 'HOST'), host: true, seat: 0, away: false }] });
         this._startPings();
         return code;
       } catch (err) {
@@ -574,7 +652,9 @@ export class LobbyManager {
   broadcast(msg) {
     if (!this.isHost) return;
     const out = msg && msg.s ? this._delta(msg) : msg;
-    for (const conn of this.conns.values()) conn.send(out);
+    // Through the room server, one copy goes up and the server hands it out.
+    if (this.transport && this.transport.sendMany) this.transport.sendMany([...this.conns.values()], out);
+    else for (const conn of this.conns.values()) conn.send(out);
   }
 
   // ---------- snapshots: send only what changed ----------
@@ -706,17 +786,32 @@ export class LobbyManager {
       const conn = await transport.join(code, { onProgress });
       this.transport = transport;
       this.hostConn = conn;
+      this.state.via = this._via(transport);
+      this.state.hostAway = !!conn.hostAway;
       conn.onData = (msg) => this._fromHost(msg);
+      conn.onAway = (away) => { if (this.state.role === 'client') this._set({ hostAway: !!away }); };
       conn.onClose = () => {
         if (this.state.role !== 'client') return;
+        const why = conn.why || 'The host closed the room.';
         this.leave(true);
-        this._set({ ...this._blank(), status: 'error', error: 'The host closed the room.' });
+        this._set({ ...this._blank(), status: 'error', error: why });
         this.onClosed('host-left');
       };
-      await withTimeout(new Promise((resolve, reject) => {
-        this._joinWait = { resolve, reject };
+      // The host answers within seconds. Through the room server a host who has stepped
+      // away (sending the code from their phone) is known to be away: wait for them.
+      await new Promise((resolve, reject) => {
+        let waited = 0;
+        const tick = setInterval(() => {
+          waited += 500;
+          if (conn.hostAway && waited % 4000 === 0) onProgress(0, 0, 'host-away');
+          if (waited >= (conn.hostAway ? HOST_AWAY_WAIT_MS : HELLO_WAIT_MS)) {
+            clearInterval(tick);
+            reject(new Error(conn.hostAway ? 'The host has not come back to BidLock. Try again when they are back.' : 'The host did not answer. Ask them to keep BidLock open on their screen.'));
+          }
+        }, 500);
+        this._joinWait = { resolve: () => { clearInterval(tick); resolve(); }, reject: (e) => { clearInterval(tick); reject(e); } };
         conn.send({ t: WIRE.HELLO, name: cleanName(name) });
-      }), 10000, 'The host did not answer. Ask them to keep BidLock open on their screen.');
+      });
       return code;
     } catch (err) {
       transport.close();
@@ -744,7 +839,7 @@ export class LobbyManager {
       return;
     }
     if (msg.t === WIRE.LOBBY) {
-      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null, level: typeof msg.level === 'string' ? msg.level : null });
+      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null, level: typeof msg.level === 'string' ? msg.level : null, hostAway: false });
       if (this._joinWait) this._joinWait.resolve();
       return;
     }

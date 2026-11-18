@@ -1,5 +1,8 @@
 // How browsers in a room find a path to each other (WebRTC ICE servers).
 //
+// Rooms normally go through the BidLock room server (roomServer.js), which needs none of
+// this. These are for the fallback: a direct WebRTC connection over PeerJS.
+//
 // STUN lets two browsers discover their public addresses and connect directly. That
 // works on most home and office networks. It does not work when one side is behind a
 // strict NAT, which is common on mobile data: those players need a TURN relay, which

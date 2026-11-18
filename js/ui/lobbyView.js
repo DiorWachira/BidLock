@@ -111,7 +111,7 @@ export class LobbyView {
     el.dataset.verdict = '';
     el.innerHTML = '<p class="lbl">YOUR CONNECTION</p><p class="lc-wait">Checking: the room server, this browser and this network…</p>';
     try {
-      const r = await checkConnection();
+      const r = await checkConnection({ roomServer: this.lobby.relayUrl });
       const x = explain(r);
       console.info(summary(r));
       el.dataset.verdict = x.verdict;
@@ -146,7 +146,9 @@ export class LobbyView {
     try {
       const code = await this.lobby.create(name);
       this.lobby.setGame(this.defaultGame());
-      this.status(`Room ${code} is open. Send the code to your friends, then come back here: friends can only get in while BidLock is open on your screen.`);
+      this.status(this.lobby.state.via === 'relay'
+        ? `Room ${code} is open. Send the code to your friends; anyone who arrives while you are away gets in when you are back.`
+        : `Room ${code} is open. Send the code to your friends, then come back here: friends can only get in while BidLock is open on your screen.`);
     } catch (err) {
       this.status(err.message || 'Could not open a room.', true);
     } finally {
@@ -165,9 +167,11 @@ export class LobbyView {
     this.status(`Joining ${code}…`);
     try {
       await this.lobby.join(name, code, {
-        onProgress: (n, of, why) => this.status(why === 'no-room'
-          ? `Room ${code} is not answering yet (try ${n} of ${of}). If the host is sending the code from their phone, they need to come back to BidLock.`
-          : `Still connecting to ${code} (try ${n} of ${of})…`),
+        onProgress: (n, of, why) => this.status(why === 'host-away'
+          ? `You are at the door of ${code}. The host has stepped away from BidLock; you will be let in as soon as they are back.`
+          : why === 'no-room'
+            ? `Room ${code} is not answering yet (try ${n} of ${of}). If the host is sending the code from their phone, they need to come back to BidLock.`
+            : `Still connecting to ${code} (try ${n} of ${of})…`),
       });
       this.status(`You are in room ${code}. Waiting for the host to start.`);
     } catch (err) {

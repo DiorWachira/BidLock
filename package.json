@@ -6,9 +6,12 @@
   "description": "BidLock: the $20 draft. A static, zero-build browser auction game.",
   "scripts": {
     "start": "node tools/serve.mjs",
-    "test": "node --test tests/engine.test.mjs tests/arcade.test.mjs tests/soundclash.test.mjs tests/net.test.mjs && node tests/e2e.mjs && node tests/arcade.e2e.mjs && node tests/soundclash.e2e.mjs"
+    "rooms:dev": "wrangler dev --config server/wrangler.jsonc",
+    "rooms:deploy": "wrangler deploy --config server/wrangler.jsonc",
+    "test": "node --test tests/engine.test.mjs tests/arcade.test.mjs tests/soundclash.test.mjs tests/net.test.mjs tests/rooms.test.mjs && node tests/e2e.mjs && node tests/arcade.e2e.mjs && node tests/soundclash.e2e.mjs && node tests/rooms.e2e.mjs"
   },
   "devDependencies": {
-    "playwright-core": "^1.65.0"
+    "playwright-core": "^1.65.0",
+    "wrangler": "4.158.0"
   }
 }
