@@ -143,7 +143,7 @@ test('check my connection: every verdict, in plain words', async () => {
   const base = { webrtc: true, host: 1, mdns: 1, srflx: 1, relay: 0, relayTcp: 0, signalling: 'ok', errors: [], relayConfigured: false, ms: 900 };
   const warn = explain(base);
   assert.equal(warn.verdict, 'warn');
-  assert.ok(warn.lines.some((l) => l.includes('room server can be reached')) && /school Wi-Fi/.test(warn.fix));
+  assert.ok(warn.lines.some((l) => l.includes('0.peerjs.com) can be reached')) && /school Wi-Fi/.test(warn.fix));
   assert.equal(explain({ ...base, relay: 2, relayTcp: 1, relayConfigured: true }).verdict, 'ok');
   const relay = explain({ ...base, srflx: 0 });
   assert.equal(relay.verdict, 'relay');
@@ -156,7 +156,8 @@ test('check my connection: every verdict, in plain words', async () => {
   const server = explain({ ...base, signalling: 'blocked' });
   assert.equal(server.verdict, 'bad');
   assert.ok(/0\.peerjs\.com/.test(server.lines[0]));
-  assert.ok(summary({ ...base, errors: ['x'] }).startsWith('[BidLock rooms] server:ok webrtc:on host:1(mdns 1) stun:1 relay:0'));
+  assert.ok(summary({ ...base, errors: ['x'] }).startsWith('[BidLock rooms] rooms:none server:ok webrtc:on host:1(mdns 1) stun:1 relay:0'));
+  assert.ok(summary({ ...base, rooms: 'ok' }).startsWith('[BidLock rooms] rooms:ok '));
   // In Node there is no WebRTC: the check says so instead of throwing.
   const r = await checkConnection({ fetchImpl: async () => ({ ok: true }), timeoutMs: 500 });
   assert.equal(r.webrtc, false);

@@ -1,7 +1,10 @@
 // "Check my connection": what stands between this browser and a room, in plain words.
 //
-// A room needs three things:
-//   1. the room server (PeerJS's signalling server), to find the host;
+// The easy way in is the BidLock room server (a WebSocket over HTTPS): if this browser can
+// reach it, rooms work, whatever the network does to WebRTC.
+//
+// Without it, a room needs three things:
+//   1. PeerJS's signalling server, to find the host;
 //   2. WebRTC switched on in this browser (Brave, privacy extensions and some VPNs turn
 //      it off or restrict it);
 //   3. a path to the host: directly (helped by STUN, which a network may block), or
@@ -10,27 +13,35 @@
 // what a join would see.
 
 import { iceServers, hasRelay } from './iceServers.js';
+import { relayHealthUrl } from './relayTransport.js';
 
 export const SIGNAL_URL = 'https://0.peerjs.com/peerjs/id';
 
-export async function checkConnection({ servers = iceServers(), timeoutMs = 7000, signalUrl = SIGNAL_URL, fetchImpl = null } = {}) {
+// 'ok' or 'blocked' for a URL that should answer 200.
+async function reachable(url, { fetchImpl, timeoutMs }) {
+  const doFetch = fetchImpl || (typeof fetch === 'function' ? (...a) => fetch(...a) : null);
+  if (!doFetch) return 'unknown';
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const res = await doFetch(`${url}?ts=${Date.now()}${Math.random().toString(36).slice(2)}`, { cache: 'no-store', ...(ctrl ? { signal: ctrl.signal } : {}) });
+    return res.ok ? 'ok' : 'blocked';
+  } catch {
+    return 'blocked';
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// roomServer: the room server's URL ('' when there is none).
+export async function checkConnection({ servers = iceServers(), timeoutMs = 7000, signalUrl = SIGNAL_URL, roomServer = '', fetchImpl = null } = {}) {
   const started = Date.now();
-  const out = { webrtc: false, host: 0, mdns: 0, srflx: 0, relay: 0, relayTcp: 0, signalling: 'unknown', errors: [], relayConfigured: hasRelay(), ms: 0 };
-  const signal = (async () => {
-    const doFetch = fetchImpl || (typeof fetch === 'function' ? (...a) => fetch(...a) : null);
-    if (!doFetch) return 'unknown';
-    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
-    try {
-      const res = await doFetch(`${signalUrl}?ts=${Date.now()}${Math.random().toString(36).slice(2)}`, ctrl ? { signal: ctrl.signal } : undefined);
-      return res.ok ? 'ok' : 'blocked';
-    } catch {
-      return 'blocked';
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  })();
+  const out = { rooms: 'none', webrtc: false, host: 0, mdns: 0, srflx: 0, relay: 0, relayTcp: 0, signalling: 'unknown', errors: [], relayConfigured: hasRelay(), ms: 0 };
+  const health = relayHealthUrl(roomServer);
+  const rooms = health ? reachable(health, { fetchImpl, timeoutMs }) : Promise.resolve('none');
+  const signal = reachable(signalUrl, { fetchImpl, timeoutMs });
   if (typeof RTCPeerConnection === 'undefined') {
+    out.rooms = await rooms;
     out.signalling = await signal;
     out.ms = Date.now() - started;
     return out;
@@ -58,6 +69,7 @@ export async function checkConnection({ servers = iceServers(), timeoutMs = 7000
   } finally {
     try { if (pc) pc.close(); } catch { /* gone */ }
   }
+  out.rooms = await rooms;
   out.signalling = await signal;
   out.ms = Date.now() - started;
   return out;
@@ -65,15 +77,33 @@ export async function checkConnection({ servers = iceServers(), timeoutMs = 7000
 
 // What the result means and what to do about it. verdict: 'ok', 'relay', 'warn' or 'bad'.
 export function explain(r) {
+  // The room server answers: every room works from here, so the rest is only detail.
+  if (r.rooms === 'ok') {
+    const lines = ['✓ The BidLock room server can be reached: rooms work from here, even on strict networks.'];
+    if (r.webrtc && r.srflx) lines.push('✓ Direct connections (WebRTC) also work here, as a fallback.');
+    else lines.push('– Direct connections (WebRTC) are blocked or limited here, which no longer matters.');
+    return { verdict: 'ok', lines, fix: '' };
+  }
+  const direct = explainDirect(r);
+  if (r.rooms === 'blocked') {
+    direct.lines.unshift('✗ The BidLock room server cannot be reached from here, so rooms fall back to direct connections.');
+    if (direct.verdict === 'ok') direct.verdict = 'warn';
+    const shield = 'Something on this device or network is blocking the room server (a firewall, a VPN, or a browser shield or ad blocker). Try turning the shield off for this site, or another network.';
+    direct.fix = direct.fix ? `${shield} Meanwhile: ${direct.fix}` : shield;
+  }
+  return direct;
+}
+
+function explainDirect(r) {
   const lines = [];
   let verdict = 'ok';
   let fix = '';
   if (r.signalling === 'blocked') {
     verdict = 'bad';
-    lines.push('✗ The room server (0.peerjs.com) cannot be reached.');
+    lines.push('✗ The direct-connection server (0.peerjs.com) cannot be reached.');
     fix = 'Something on this device or network is blocking it: a firewall, a VPN, or a browser shield or ad blocker. Try turning the shield off for this site, or another network.';
   } else if (r.signalling === 'ok') {
-    lines.push('✓ The room server can be reached.');
+    lines.push('✓ The direct-connection server (0.peerjs.com) can be reached.');
   }
   if (!r.webrtc) {
     verdict = 'bad';
@@ -108,5 +138,5 @@ export function explain(r) {
 
 // One line for the console, so a screenshot of it says everything.
 export function summary(r) {
-  return `[BidLock rooms] server:${r.signalling} webrtc:${r.webrtc ? 'on' : 'off'} host:${r.host}${r.mdns ? `(mdns ${r.mdns})` : ''} stun:${r.srflx} relay:${r.relay}${r.relayTcp ? `(tcp ${r.relayTcp})` : ''} relayConfigured:${r.relayConfigured ? 'yes' : 'no'} ${r.ms}ms${r.errors.length ? ` errors: ${r.errors.join(' | ')}` : ''}`;
+  return `[BidLock rooms] rooms:${r.rooms || 'none'} server:${r.signalling} webrtc:${r.webrtc ? 'on' : 'off'} host:${r.host}${r.mdns ? `(mdns ${r.mdns})` : ''} stun:${r.srflx} relay:${r.relay}${r.relayTcp ? `(tcp ${r.relayTcp})` : ''} relayConfigured:${r.relayConfigured ? 'yes' : 'no'} ${r.ms}ms${r.errors.length ? ` errors: ${r.errors.join(' | ')}` : ''}`;
 }
