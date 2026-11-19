@@ -8,7 +8,7 @@ import {
 } from '../js/games/sampleArena/sampleArenaEngine.js';
 import {
   GENRES, GENRE_CHOICES, genreById, cleanTitle, parseResults, buildRounds, offlineRounds, planSearches, loadMatch, ROUND_COUNT,
-  LEVELS, levelById, isHit, hitsFor, findSong, songTrack, animeRivals, series,
+  LEVELS, levelById, isHit, hitsFor, findSong, songTrack, animeRivals, series, spreadPick,
 } from '../js/games/sampleArena/itunesLoader.js';
 import { ANIME_SONGS } from '../js/games/sampleArena/animeSongs.js';
 import { HITS } from '../js/games/sampleArena/hits.js';
@@ -45,10 +45,29 @@ test('the crates: six genres and the shuffle', () => {
   assert.equal(genreById('nope').id, 'all');
   for (const g of GENRES) assert.ok((g.terms.length >= 12 || (g.songs && g.songs.length >= 40)) && g.name && g.short, g.id);
   const rng = mulberry32(3);
-  assert.equal(planSearches('all', rng).length, 4);
+  assert.equal(planSearches('all', rng).length, 5);
   const plan = planSearches('rock', rng);
-  assert.equal(plan.length, 3);
+  assert.equal(plan.length, 5, 'five artists a match');
+  assert.equal(new Set(plan.map((p) => p.term)).size, 5);
   assert.ok(plan.every((p) => GENRES.find((g) => g.id === 'rock').terms.includes(p.term)));
+});
+
+test('variety: no artist supplies more than two answers, and each gets one first', () => {
+  // A pool where one artist has far more songs (and the top popularity) than the others.
+  const pool = [];
+  for (let i = 0; i < 12; i++) pool.push({ id: 'meg' + i, title: 'Meg Song ' + i, artist: 'Megan Thee Stallion', pop: 1 - i * 0.01, hit: true, url: 'u', art: 'a', genre: 'hiphop' });
+  for (const a of ['Drake', 'Kendrick Lamar', 'Travis Scott', 'Doja Cat']) for (let i = 0; i < 3; i++) pool.push({ id: a + i, title: a + ' Song ' + i, artist: a, pop: 0.6 - i * 0.05, hit: i === 0, url: 'u', art: 'a', genre: 'hiphop' });
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const level of ['easy', 'normal', 'hard']) {
+      const rounds = buildRounds(pool, mulberry32(seed), ROUND_COUNT, { level });
+      const count = {};
+      for (const r of rounds) count[r.target.artist] = (count[r.target.artist] || 0) + 1;
+      assert.ok(Math.max(...Object.values(count)) <= 2, `${level} seed ${seed}: ${JSON.stringify(count)}`);
+      assert.equal(Object.keys(count).length, 5, 'all five artists are asked about');
+    }
+  }
+  assert.deepEqual(spreadPick([{ artist: 'A' }, { artist: 'A' }, { artist: 'A' }, { artist: 'B' }], 3, 2).map((t) => t.artist), ['A', 'B', 'A'], 'one each first, then a second');
+  assert.equal(spreadPick([{ artist: 'A' }, { artist: 'A' }, { artist: 'A' }], 3, 2).length, 3, 'a short pool still fills the match');
 });
 
 test('the crate digger: titles, filtering and artwork', () => {
@@ -97,7 +116,7 @@ test('the crate digger: iTunes, or the offline crate when it fails', async () =>
   const live = await loadMatch({ genre: 'pop', rng: mulberry32(4), fetchImpl: ok });
   assert.equal(live.source, 'itunes');
   assert.equal(live.rounds.length, ROUND_COUNT);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 5);
   assert.ok(calls.every((u) => u.includes('media=music') && u.includes('entity=song') && u.includes('limit=35')));
   const down = await loadMatch({ genre: 'pop', rng: mulberry32(4), fetchImpl: async () => { throw new Error('offline'); } });
   assert.equal(down.source, 'offline');
@@ -111,7 +130,7 @@ test('the crate digger: iTunes, or the offline crate when it fails', async () =>
 test('scoring: speed, overtime and streaks', () => {
   const W = S_RULES.warpTime;
   const T = S_RULES.roundTime;
-  assert.ok(T >= 16 && W >= 11, 'sixteen seconds a round, eleven of them warped');
+  assert.ok(T === 15 && W === 7, 'fifteen seconds a round: seven warped, then eight clean');
   assert.equal(speedPoints(0), 1000);
   assert.equal(speedPoints(W / 2), 750);
   assert.equal(speedPoints(W), 500);

@@ -15,8 +15,8 @@ const table = (people, bots) => [
 ];
 const wire = (x) => JSON.parse(JSON.stringify(x));
 
-test('the programme guide lists four games', () => {
-  assert.deepEqual(GAMES.map((g) => g.id), ['bidlock', 'royale', 'lamp', 'soundclash']);
+test('the programme guide lists five shows', () => {
+  assert.deepEqual(GAMES.map((g) => g.id), ['bidlock', 'royale', 'lamp', 'soundclash', 'coldopen']);
   for (const g of GAMES) {
     assert.ok(g.name && g.marquee.length <= 8 && g.tagline && g.how.length >= 3, g.id);
     assert.ok(g.fillTo >= g.minSeats);

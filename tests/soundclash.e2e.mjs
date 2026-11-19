@@ -162,7 +162,7 @@ try {
   {
     const ctx = await context(browser);
     const { page: p, errors } = await page(ctx, Q);
-    ok('the title lists four shows', (await p.locator('#channels .channel').count()) === 4);
+    ok('the title lists five shows', (await p.locator('#channels .channel').count()) === 5);
     ok('the crate picker is hidden for BidLock', !(await p.locator('#soundclash-opts').isVisible()));
     await p.locator('.channel[data-game="soundclash"]').click();
     ok('picking Soundclash shows the crates', await p.locator('#soundclash-opts').isVisible() && (await p.locator('.sc-crate').count()) === 7);
@@ -176,9 +176,9 @@ try {
     await p.waitForFunction(() => window.__bidlock && window.__bidlock.screen === 'title');
     ok('the crate is remembered', (await p.locator('.sc-crate[aria-checked="true"]').getAttribute('data-genre')) === 'anime');
     await p.locator('.sc-crate[data-genre="pop"]').click();
-    ok('three difficulty levels, normal by default', (await p.locator('.sc-level').count()) === 3 && (await p.locator('.sc-level[aria-checked="true"]').getAttribute('data-level')) === 'normal');
-    await p.locator('.sc-level[data-level="easy"]').click();
-    ok('a level can be picked', (await p.locator('.sc-level[aria-checked="true"]').getAttribute('data-level')) === 'easy');
+    ok('three difficulty levels, normal by default', (await p.locator('#sc-level-list .sc-level').count()) === 3 && (await p.locator('#sc-level-list .sc-level[aria-checked="true"]').getAttribute('data-level')) === 'normal');
+    await p.locator('#sc-level-list .sc-level[data-level="easy"]').click();
+    ok('a level can be picked', (await p.locator('#sc-level-list .sc-level[aria-checked="true"]').getAttribute('data-level')) === 'easy');
     await shot(p, 'title-soundclash');
 
     await p.locator('#btn-start').click();
@@ -266,7 +266,7 @@ try {
     await p.waitForFunction(() => /Cueing up the first record/.test(document.querySelector('#sc-card')?.textContent || ''), null, { timeout: 10000 });
     ok('a slow first preview: the start waits, cueing up the record', (await phase(p)) === 'IDLE');
     await waitPhase(p, 'PLAY');
-    ok('three searches for one crate', ctx.searches.length === 3, ctx.searches.join(', '));
+    ok('five artists searched for one crate', ctx.searches.length === 5 && new Set(ctx.searches).size === 5, ctx.searches.join(', '));
     ok('the searches come from the chosen crate', ctx.searches.every((t) => ['Arctic Monkeys', 'The Killers', 'Foo Fighters', 'Red Hot Chili Peppers', 'Linkin Park', 'Nirvana', 'Coldplay', 'Imagine Dragons', 'The Strokes', 'Muse', 'Paramore', 'Green Day', 'Oasis', 'Tame Impala', 'Radiohead'].includes(t)));
     await p.waitForFunction(() => window.__bidlock.arcade.deck.tier > 0, null, { timeout: 5000 });
     ok('tier 1 from the first round, even on a slow line', (await deck(p)).tier === 1, JSON.stringify(await deck(p)));
@@ -290,7 +290,7 @@ try {
     await p.locator('.channel[data-game="soundclash"]').click();
     ok('the anime crate is called Anime Openings & Endings', (await p.locator('.sc-crate[data-genre="anime"] b').textContent()) === 'Anime Openings & Endings');
     await p.locator('.sc-crate[data-genre="anime"]').click();
-    await p.locator('.sc-level[data-level="hard"]').click();
+    await p.locator('#sc-level-list .sc-level[data-level="hard"]').click();
     await p.locator('#btn-start').click();
     await waitPhase(p, 'PLAY');
     ok('eleven named songs are searched', ctx.searches.length === 11 && ctx.searches.every((t) => ANIME_SONGS.some((x) => `${x.artist} ${x.title}` === t)), ctx.searches.join(', '));

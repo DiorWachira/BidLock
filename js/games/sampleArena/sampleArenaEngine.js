@@ -2,13 +2,16 @@
 //
 // A sound clash is a battle between sound systems. Here every player is a "sound". Each
 // of eight rounds drops a three-second loop of a real song, warped, and four titles. Name
-// it fast: 1,000 points at the drop, falling to 500 by eleven seconds. Then the warp
-// lifts for five seconds of overtime, worth 350 falling to 150. Right answers in a row
+// it fast: 1,000 points at the drop, falling to 500 by seven seconds. Then the warp lifts
+// and the song plays on, clean, for eight seconds of overtime, worth 350 falling to 150. Right answers in a row
 // build a streak multiplier. Points are also ammunition: spend them mid-round to throw a
 // dubplate at a rival and wreck their audio.
 //
 // Secrets: which option is right, and everyone's choices, stay out of snapshots until
 // the reveal. A guest learns only that a rival has locked in, and when.
+//
+// The engine takes its rules, warps and sabotages as a spec (SOUNDCLASH by default), so
+// Cold Open runs on it too, with film warps and projection-booth sabotage.
 
 import { mulberry32 } from '../../engine/auctionEngine.js';
 import { botProfile } from '../../arcade/bots.js';
@@ -21,8 +24,8 @@ export const S_RULES = Object.freeze({
   maxSounds: 6,
   introTime: 4,
   cueTime: 1.6, // the needle drops
-  roundTime: 16,
-  warpTime: 11, // then overtime: the warp lifts
+  roundTime: 15,
+  warpTime: 7, // then eight seconds of overtime: the warp lifts and the song plays on
   revealTime: 3.5,
   allInGrace: 2, // once everyone has picked, this long to change their minds
   warpMax: 1000,
@@ -40,28 +43,41 @@ export const FINAL_WARP = 'CLEAN_FINAL';
 // How much each warp hides a song from a bot's ear.
 const WARP_EASE = { NIGHTCORE_UP: 0.85, CHOPPED_SCREWED: 0.8, UNDERWATER_SUB: 0.72, REVERSE_SPIN: 0.5, CLEAN_FINAL: 1 };
 
+// A sabotage may also: scramble the buttons (perm), pick a mode at random (modes), break
+// the victim's streak (breaks), or cut to another round's clip (decoy).
 export const SABOTAGES = Object.freeze({
   under: { id: 'under', name: 'Underwater Muffle', short: 'UNDERWATER', cost: 300, time: 4, line: 'muffles their sound to 240 Hz for four seconds' },
-  scratch: { id: 'scratch', name: 'Vinyl Scratch & Scramble', short: 'SCRATCH', cost: 450, time: 3, line: 'scratches their record and scrambles their buttons for three seconds' },
-  shock: { id: 'shock', name: 'Reverse / Chipmunk Shockwave', short: 'SHOCKWAVE', cost: 600, time: 3, line: 'flips their loop and their card for three seconds, and breaks their streak' },
+  scratch: { id: 'scratch', name: 'Vinyl Scratch & Scramble', short: 'SCRATCH', cost: 450, time: 3, perm: true, line: 'scratches their record and scrambles their buttons for three seconds' },
+  shock: { id: 'shock', name: 'Reverse / Chipmunk Shockwave', short: 'SHOCKWAVE', cost: 600, time: 3, modes: ['reverse', 'chipmunk'], breaks: true, line: 'flips their loop and their card for three seconds, and breaks their streak' },
 });
 export const SABOTAGE_ORDER = Object.freeze(['under', 'scratch', 'shock']);
 // What a hit does to a bot, which has no ears to muffle: it loses time and may fumble.
 // Muffled or flipped, it cannot place the song until the clean overtime.
 const BOT_HIT = { under: { delay: 2.2, fumble: 0.25, overtime: true }, scratch: { delay: 1.8, fumble: 0.55, overtime: true }, shock: { delay: 2.8, fumble: 0.75, overtime: true } };
 
-export const streakMult = (streak) => S_RULES.streaks[Math.min(S_RULES.streaks.length - 1, Math.max(0, streak - 1))];
+export const SOUNDCLASH = Object.freeze({
+  name: 'Soundclash',
+  rules: S_RULES,
+  warps: { order: WARP_ORDER, byLevel: { easy: EASY_WARPS }, final: FINAL_WARP, ease: WARP_EASE },
+  sabotages: SABOTAGES,
+  sabOrder: SABOTAGE_ORDER,
+  botHit: BOT_HIT,
+});
+
+export const multFor = (rules, streak) => rules.streaks[Math.min(rules.streaks.length - 1, Math.max(0, streak - 1))];
+export const streakMult = (streak) => multFor(S_RULES, streak);
 
 // Base points for a right answer locked in `at` seconds after the drop.
-export function speedPoints(at) {
-  const R = S_RULES;
+export function pointsFor(R, at) {
   if (at <= R.warpTime) return Math.round(R.warpMax - (R.warpMax - R.warpMin) * Math.max(0, at) / R.warpTime);
   const over = Math.min(1, (at - R.warpTime) / (R.roundTime - R.warpTime));
   return Math.round(R.overMax - (R.overMax - R.overMin) * over);
 }
+export const speedPoints = (at) => pointsFor(S_RULES, at);
 
 export class SampleArenaEngine {
-  constructor() {
+  constructor(spec = SOUNDCLASH) {
+    this.spec = spec;
     this.listeners = new Map();
     this.phase = S_PHASE.IDLE;
     this.players = [];
@@ -93,11 +109,12 @@ export class SampleArenaEngine {
 
   // match: { source, genre, rounds } from itunesLoader.loadMatch
   startMatch({ seats, seed = (Date.now() & 0x7fffffff), localId = 0, match } = {}) {
-    const list = (seats || []).slice(0, S_RULES.maxSounds);
-    if (list.length < 2) throw new Error('Soundclash needs at least two sounds.');
-    if (!match || !Array.isArray(match.rounds) || !match.rounds.length) throw new Error('Soundclash needs a crate of rounds.');
+    const { rules, warps } = this.spec;
+    const list = (seats || []).slice(0, rules.maxSounds);
+    if (list.length < 2) throw new Error(`${this.spec.name} needs at least two players.`);
+    if (!match || !Array.isArray(match.rounds) || !match.rounds.length) throw new Error(`${this.spec.name} needs a set of rounds.`);
     this.options = { seed, source: match.source, genre: match.genre, level: match.level || 'normal' };
-    const warpPool = match.level === 'easy' ? EASY_WARPS : WARP_ORDER;
+    const warpPool = (warps.byLevel && warps.byLevel[match.level]) || warps.order;
     this.rng = mulberry32(seed);
     this.mirror = false;
     this.localId = localId;
@@ -107,7 +124,7 @@ export class SampleArenaEngine {
     let bag = [];
     let prev = null;
     for (let i = 0; i < this.rounds.length; i++) {
-      if (i === this.rounds.length - 1) { this.rounds[i].warp = FINAL_WARP; break; }
+      if (i === this.rounds.length - 1) { this.rounds[i].warp = warps.final; break; }
       if (!bag.length) bag = shuffle(warpPool.slice(), this.rng);
       let k = bag.findIndex((w) => w !== prev);
       if (k < 0) k = 0;
@@ -125,7 +142,7 @@ export class SampleArenaEngine {
     this.correct = -1;
     this.last = null;
     this.ranking = [];
-    this._phase(S_PHASE.INTRO, S_RULES.introTime);
+    this._phase(S_PHASE.INTRO, rules.introTime);
     this.emit('matchStart', { count: this.players.length, source: match.source, genre: match.genre, urls: this.urls() });
   }
 
@@ -140,7 +157,7 @@ export class SampleArenaEngine {
   get me() { return this.players[this.localId] || null; }
   get elapsed() { return this.total - this.t; }
   get final() { return this.round === this.rounds.length; }
-  get overtime() { return this.phase === S_PHASE.PLAY && this.elapsed >= S_RULES.warpTime; }
+  get overtime() { return this.phase === S_PHASE.PLAY && this.elapsed >= this.spec.rules.warpTime; }
   get leader() {
     let best = null;
     for (const p of this.players) if (!best || p.score > best.score) best = p;
@@ -151,7 +168,7 @@ export class SampleArenaEngine {
   effects(p) {
     const out = {};
     if (!p || this.phase !== S_PHASE.PLAY) return out;
-    for (const k of SABOTAGE_ORDER) {
+    for (const k of this.spec.sabOrder) {
       const f = p.fx[k];
       if (f && f.until > this.elapsed) out[k] = { left: f.until - this.elapsed, ...f };
     }
@@ -193,7 +210,7 @@ export class SampleArenaEngine {
   // Throw a dubplate. `to` is a seat, or 'leader' for whoever is top (not you).
   sabotageFor(id, kind, to) {
     const p = this.players[id];
-    const s = SABOTAGES[kind];
+    const s = this.spec.sabotages[kind];
     if (!p || !s || this.phase !== S_PHASE.PLAY) return false;
     if (p.sabRound === this.round) return false; // one throw a round
     if (p.score < s.cost) return false;
@@ -204,22 +221,24 @@ export class SampleArenaEngine {
     p.sabLanded++;
     target.sabHit++;
     const fx = { by: id, until: this.elapsed + s.time };
-    if (kind === 'scratch') fx.perm = shuffle([0, 1, 2, 3], this.rng);
-    if (kind === 'shock') {
-      fx.mode = this.rng() < 0.5 ? 'reverse' : 'chipmunk';
-      // The shockwave also breaks their streak: the multiplier starts again.
+    if (s.perm) fx.perm = shuffle([0, 1, 2, 3], this.rng);
+    if (s.modes) fx.mode = s.modes[Math.floor(this.rng() * s.modes.length)];
+    // Another round's clip to cut to (Cold Open's wrong reel).
+    if (s.decoy && this.rounds.length > 1) fx.decoy = ((this.round - 1) + 1 + Math.floor(this.rng() * (this.rounds.length - 1))) % this.rounds.length;
+    if (s.breaks) {
+      // It also breaks their streak: the multiplier starts again.
       fx.broke = target.streak;
       target.streak = 0;
     }
     target.fx[kind] = fx;
-    // A house sound that is hit loses its place: it answers later and may fumble.
+    // A house player that is hit loses its place: it answers later and may fumble.
     if (!target.isHuman && target.plan) {
-      const h = BOT_HIT[kind];
+      const h = this.spec.botHit[kind];
       target.plan.at += h.delay;
-      if (h.overtime) target.plan.at = Math.max(target.plan.at, S_RULES.warpTime + 0.3 + this.rng() * 1.4);
+      if (h.overtime) target.plan.at = Math.max(target.plan.at, this.spec.rules.warpTime + 0.3 + this.rng() * 1.4);
       if (target.plan.choice === this.correct && this.rng() < h.fumble) target.plan.choice = this._wrong(this.rng);
     }
-    this.emit('sabotage', { from: id, to: target.id, kind, mode: fx.mode || null, perm: fx.perm || null });
+    this.emit('sabotage', { from: id, to: target.id, kind, mode: fx.mode || null, perm: fx.perm || null, decoy: fx.decoy ?? null });
     return true;
   }
 
@@ -239,7 +258,7 @@ export class SampleArenaEngine {
       if (wasWarped && this.overtime) this.emit('overtime', { n: this.round });
       this._bots();
       const waiting = this.players.filter((p) => !p.locked && !(p.isHuman && p.away));
-      if (!waiting.length && this.t > S_RULES.allInGrace) this.t = S_RULES.allInGrace;
+      if (!waiting.length && this.t > this.spec.rules.allInGrace) this.t = this.spec.rules.allInGrace;
     }
     if (this.t > 0) return;
     switch (this.phase) {
@@ -257,18 +276,19 @@ export class SampleArenaEngine {
     this.current = {
       n: this.round, of: this.rounds.length, warp: r.warp, final: this.round === this.rounds.length,
       url: r.target.url || '', synth: r.target.synth || null, start: r.start || 0, options: r.options,
+      ...(r.len ? { len: r.len } : {}),
     };
     this.correct = r.correct;
     this.last = null;
     for (const p of this.players) {
       p.locked = false; p.at = 0; p.choice = null; p.ok = null; p.gain = 0; p.mult = 1; p.fx = {}; p.plan = null; p.botSab = null; p.changes = 0;
     }
-    this._phase(S_PHASE.CUE, S_RULES.cueTime);
+    this._phase(S_PHASE.CUE, this.spec.rules.cueTime);
     this.emit('cue', { n: this.round, of: this.rounds.length, warp: r.warp, final: this.current.final });
   }
 
   _play() {
-    this._phase(S_PHASE.PLAY, S_RULES.roundTime);
+    this._phase(S_PHASE.PLAY, this.spec.rules.roundTime);
     for (const p of this.players) if (!p.isHuman) this._planBot(p);
     // At most one house sound throws a dubplate each round.
     const throwers = this.players.filter((p) => p.botSab).sort((x, y) => x.botSab.at - y.botSab.at);
@@ -282,7 +302,7 @@ export class SampleArenaEngine {
     const prof = botProfile(p.bot);
     const r = this.rounds[this.round - 1];
     const pop = r.target.pop == null ? 0.7 : r.target.pop;
-    const ease = WARP_EASE[r.warp] || 0.8;
+    const ease = this.spec.warps.ease[r.warp] || 0.8;
     const knows = rng() < prof.skill * (0.55 + 0.45 * pop) * ease + 0.08;
     let at;
     let choice;
@@ -291,19 +311,19 @@ export class SampleArenaEngine {
       choice = this.correct;
     } else if (rng() < 0.6) {
       // Waits for the clean overtime, then probably gets it.
-      at = S_RULES.warpTime + 0.4 + rng() * 2.6;
+      at = this.spec.rules.warpTime + 0.4 + rng() * 2.6;
       choice = rng() < prof.skill * (0.6 + 0.4 * pop) + 0.15 ? this.correct : this._wrong(rng);
     } else {
       at = 2.5 + rng() * 5;
       choice = rng() < 0.25 ? this.correct : this._wrong(rng);
     }
-    p.plan = { at: Math.min(S_RULES.roundTime - 0.4, at), choice };
+    p.plan = { at: Math.min(this.spec.rules.roundTime - 0.4, at), choice };
     // Sabotage: mostly aimed at a person in the lead.
     const lead = this.leader;
     if (lead && lead.id !== p.id && lead.score > 0) {
       const chance = lead.isHuman ? 0.16 : 0.05;
       if (rng() < chance) {
-        const can = SABOTAGE_ORDER.filter((k) => SABOTAGES[k].cost <= p.score);
+        const can = this.spec.sabOrder.filter((k) => this.spec.sabotages[k].cost <= p.score);
         if (can.length) p.botSab = { at: 1.2 + rng() * 4.5, kind: can[Math.floor(rng() * can.length)], to: lead.id };
       }
     }
@@ -340,14 +360,14 @@ export class SampleArenaEngine {
         p.streak++;
         p.right++;
         p.best = Math.max(p.best, p.streak);
-        p.mult = streakMult(p.streak);
-        gain = Math.round(speedPoints(p.at) * p.mult * (final ? 2 : 1));
+        p.mult = multFor(this.spec.rules, p.streak);
+        gain = Math.round(pointsFor(this.spec.rules, p.at) * p.mult * (final ? 2 : 1));
         if (p.fastest == null || p.at < p.fastest) p.fastest = p.at;
         if (!fastest || p.at < fastest.at) fastest = { id: p.id, at: p.at };
       } else {
         p.streak = 0;
         p.mult = 1;
-        if (final && p.locked) gain = -Math.min(p.score, S_RULES.finalWrong);
+        if (final && p.locked) gain = -Math.min(p.score, this.spec.rules.finalWrong);
       }
       p.gain = gain;
       p.score += gain;
@@ -356,9 +376,10 @@ export class SampleArenaEngine {
     const t = r.target;
     this.last = {
       n: this.round, correct: this.correct, title: t.title, artist: t.artist, art: t.art || '', link: t.link || '', synth: t.synth || null,
+      ...(t.film ? { film: t.film, year: t.year } : {}),
       gains, fastest,
     };
-    this._phase(S_PHASE.REVEAL, S_RULES.revealTime);
+    this._phase(S_PHASE.REVEAL, this.spec.rules.revealTime);
     this.emit('reveal', this.last);
   }
 
