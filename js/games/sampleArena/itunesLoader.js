@@ -96,7 +96,7 @@ export function isHit(title, hits) {
   });
 }
 
-function shuffled(list, rng) {
+export function shuffled(list, rng) {
   const a = list.slice();
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
@@ -107,7 +107,7 @@ function shuffled(list, rng) {
 
 // iTunes answers cross-origin requests; JSONP is the fallback for browsers or networks
 // where a plain fetch is refused.
-async function getJson(url, { fetchImpl, timeoutMs }) {
+export async function getJson(url, { fetchImpl, timeoutMs }) {
   const doFetch = fetchImpl || (typeof fetch === 'function' ? (...a) => fetch(...a) : null);
   if (doFetch) {
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -239,8 +239,12 @@ function saveSongCache(m) {
 }
 const songKey = (song) => `${song.artist}|${song.title}`;
 
-// The searches for a crate: three artists from it, or one from each of four crates in
-// the shuffle. Fewer calls than Apple's limit of about 20 a minute.
+// The searches for a crate: five artists from it, or one from each of five crates in the
+// shuffle. Well under Apple's limit of about 20 a minute.
+export const ARTISTS_PER_MATCH = 5;
+// No artist supplies more than this many of a match's answers, and every artist gets one
+// before any gets a second, so a match never turns into one artist's greatest hits.
+export const MAX_PER_ARTIST = 2;
 export const SIDE_CHANCE = 0.25; // how often a crate's third search is a side artist
 export const SIDE_ROUNDS = 2; // the most rounds a side artist may supply
 
@@ -255,21 +259,40 @@ export function planSearches(genreId, rng) {
   const search = (g, term) => ({ term, loose: !!g.loose, genre: g.id, hits: hitsFor(g.id, term), side: (g.side || []).includes(term) });
   if (genreId === 'all') {
     // The shuffle takes one artist per crate (one song from the anime crate).
-    return shuffled(GENRES, rng).slice(0, 4).map((g) => (g.songs ? songSearch(shuffled(g.songs, rng)[0]) : search(g, shuffled(coreTerms(g), rng)[0])));
+    return shuffled(GENRES, rng).slice(0, ARTISTS_PER_MATCH).map((g) => (g.songs ? songSearch(shuffled(g.songs, rng)[0]) : search(g, shuffled(coreTerms(g), rng)[0])));
   }
   const g = GENRES.find((x) => x.id === genreId) || GENRES[0];
   // Eight songs to ask about, and three spares in case one is missing from the store.
-  if (g.songs) return shuffled(g.songs, rng).slice(0, ROUND_COUNT + 3).map(songSearch);
-  if (!g.side) return shuffled(g.terms, rng).slice(0, 3).map((term) => search(g, term));
-  // A crate with a side dish leans on its core: two core artists always, and the third
+  if (g.songs) return spreadPick(shuffled(g.songs, rng), ROUND_COUNT + 3, MAX_PER_ARTIST).map(songSearch);
+  if (!g.side) return shuffled(g.terms, rng).slice(0, ARTISTS_PER_MATCH).map((term) => search(g, term));
+  // A crate with a side dish leans on its core: core artists always, and the last search
   // is a side artist only a quarter of the time.
   const core = shuffled(coreTerms(g), rng);
-  const third = rng() < SIDE_CHANCE ? shuffled(g.side, rng)[0] : core[2];
-  return [core[0], core[1], third].map((term) => search(g, term));
+  const last = rng() < SIDE_CHANCE ? shuffled(g.side, rng)[0] : core[ARTISTS_PER_MATCH - 1];
+  return [...core.slice(0, ARTISTS_PER_MATCH - 1), last].filter(Boolean).map((term) => search(g, term));
 }
 
-// Eight rounds from a pool of tracks. Targets lean popular; rivals come from the same
-// crate, at most one by the same artist.
+// Take `count` from a list in its order, one per artist first, then up to `cap` each,
+// then (only if the pool is short) anything left.
+export function spreadPick(list, count, cap = MAX_PER_ARTIST) {
+  const out = [];
+  const per = new Map();
+  const who = (t) => String(t.artist || '').toLowerCase();
+  for (const limit of [1, cap, Infinity]) {
+    for (const t of list) {
+      if (out.length >= count) return out;
+      if (out.includes(t)) continue;
+      const n = per.get(who(t)) || 0;
+      if (n >= limit) continue;
+      out.push(t);
+      per.set(who(t), n + 1);
+    }
+  }
+  return out;
+}
+
+// Eight rounds from a pool of tracks. Targets lean popular, spread across artists; rivals
+// come from the same crate, at most one by the same artist.
 export function hitsFor(genreId, term) {
   return (HITS[genreId] && HITS[genreId][term]) || [];
 }
@@ -293,7 +316,7 @@ export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal', 
     const deepAll = byPop.filter((t) => !t.hit);
     const deepSide = deepAll.filter((t) => t.side).slice(0, SIDE_ROUNDS);
     const deep = [...deepAll.filter((t) => !t.side), ...deepSide];
-    targets = [...shuffled(deep.slice(0, Math.max(count, Math.ceil(deep.length * 0.8))), rng), ...shuffled(byPop.filter((t) => t.hit), rng)].slice(0, count);
+    targets = spreadPick([...shuffled(deep.slice(0, Math.max(count, Math.ceil(deep.length * 0.8))), rng), ...shuffled(byPop.filter((t) => t.hit), rng)], count);
   } else {
     // The famous ones: the curated hits first, topped up with the most popular others.
     // Side artists (a crate's games and memes) supply at most SIDE_ROUNDS of them.
@@ -302,7 +325,7 @@ export function buildRounds(pool, rng, count = ROUND_COUNT, { level = 'normal', 
     const sideHits = allHits.filter((t) => t.side).slice(0, Math.max(SIDE_ROUNDS, count - coreHits.length));
     const hits = [...coreHits.slice(0, count - Math.min(SIDE_ROUNDS, sideHits.length)), ...sideHits, ...coreHits.slice(count - Math.min(SIDE_ROUNDS, sideHits.length))];
     const rest = byPop.filter((t) => !t.hit && !t.synth);
-    targets = shuffled([...hits, ...shuffled(rest.slice(0, Math.max(count, Math.ceil(rest.length * 0.4))), rng)].slice(0, count), rng);
+    targets = shuffled(spreadPick([...hits, ...shuffled(rest.slice(0, Math.max(count, Math.ceil(rest.length * 0.4))), rng)], count), rng);
   }
   const sameArtistMax = level === 'easy' ? 0 : level === 'hard' ? 2 : 1;
   const used = new Set(targets.map((t) => t.id));

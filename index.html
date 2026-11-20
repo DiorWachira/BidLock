@@ -61,7 +61,7 @@
       <!-- Title screen -->
       <section id="title" aria-labelledby="title-h">
         <div class="title-panel">
-          <p class="slug" id="title-slug">CH 20 · TONIGHT'S SCHEDULE · FOUR SHOWS</p>
+          <p class="slug" id="title-slug">CH 20 · TONIGHT'S SCHEDULE · FIVE SHOWS</p>
           <div id="channels" class="channels" role="radiogroup" aria-label="Choose a game"></div>
           <canvas id="logo" class="logo"></canvas>
           <h1 id="title-h" class="strap"><span id="strap-text">The $<span id="strap-budget">20</span> Draft</span></h1>
@@ -92,6 +92,13 @@
             <div id="sc-crate-list" class="sc-crate-list" role="radiogroup" aria-label="Music crate"></div>
             <p class="sc-level-head">Difficulty</p>
             <div id="sc-level-list" class="sc-level-list" role="radiogroup" aria-label="Difficulty"></div>
+          </fieldset>
+
+          <fieldset id="coldopen-opts" class="sc-crates co-progs" hidden>
+            <legend>Programme · the films Cold Open shows</legend>
+            <div id="co-prog-list" class="sc-crate-list co-prog-list" role="radiogroup" aria-label="Programme of films"></div>
+            <p class="sc-level-head">Difficulty</p>
+            <div id="co-level-list" class="sc-level-list" role="radiogroup" aria-label="Difficulty"></div>
           </fieldset>
 
           <div class="title-actions">
@@ -242,7 +249,7 @@
       <div id="lobby-menu" class="lobby-menu">
         <div class="lobby-card">
           <h3>Create a room</h3>
-          <p>You host. You get a five-character code to send to your friends, and you choose which of the four games the room plays. Everyone can vote.</p>
+          <p>You host. You get a five-character code to send to your friends, and you choose which of the five shows the room plays. Everyone can vote.</p>
           <button id="lobby-create" class="btn btn-live" type="button"><span class="b-label">CREATE LOBBY</span></button>
         </div>
         <div class="lobby-card">
@@ -264,7 +271,7 @@
         <ol id="lobby-players" class="lobby-players"></ol>
         <label class="check" id="lobby-fill-wrap">
           <input type="checkbox" id="lobby-fill" checked>
-          <span><b>Fill empty seats with AI bots</b> Bots take the free seats: up to 4 in BidLock, 12 in Trapdoor Royale, 6 in Last Lamp and Soundclash.</span>
+          <span><b>Fill empty seats with AI bots</b> Bots take the free seats: up to 4 in BidLock, 12 in Trapdoor Royale, 6 in Last Lamp, Soundclash and Cold Open.</span>
         </label>
         <p id="lobby-summary" class="lobby-summary"></p>
         <div class="lobby-actions">
@@ -361,7 +368,7 @@
         <div><dt>Vault</dt><dd>$2 to make one lot heist-proof.</dd></div>
         <div><dt>Heist</dt><dd>A forced swap. The thief pays hammer price plus $1 and hands over their own lot from that category.</dd></div>
         <div><dt>Uncontested</dt><dd>The last contender still needing a lot gets the last one, the round's booby prize, for $1.</dd></div>
-        <div><dt>Room code</dt><dd>Five characters, like BL-7K9. The host's browser runs the match; everyone else connects straight to it.</dd></div>
+        <div><dt>Room code</dt><dd>Five characters, like BL-7K9. The host's browser runs the match; everyone else connects to it through the BidLock room server.</dd></div>
       </dl>
 
       <h3 class="lbl">THE HOUSE RIVALS</h3>

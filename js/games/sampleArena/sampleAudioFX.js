@@ -180,6 +180,7 @@ export class SampleDeck {
     this.stop(0.03);
     this.warp = WARPS[warpKey] || CLEAN;
     this.clean = false;
+    this.full = null;
     this.fx = { under: false, shock: null };
     this.lost = false;
     this.playing = true;
@@ -198,6 +199,8 @@ export class SampleDeck {
     if (buffer) {
       const start = track.synth ? 0 : track.start || 0;
       this.loops = { fwd: makeLoop(this.ctx, buffer, start), rev: makeLoop(this.ctx, buffer, start, { reverse: true }) };
+      // The whole preview, for the clean overtime: the song plays on from the hook.
+      this.full = { buffer, start };
       this.tier = tier;
       this._startSource();
       this._apply(true);
@@ -211,17 +214,21 @@ export class SampleDeck {
     const ctx = this.ctx;
     const s = this._state();
     const node = ctx.createBufferSource();
-    node.buffer = s.reverse ? this.loops.rev : this.loops.fwd;
+    // Clean and forwards: the song itself from the hook (round to the hook again at the
+    // end of the preview). Otherwise the three-second loop.
+    const full = this.clean && !s.reverse && this.full;
+    node.buffer = full ? this.full.buffer : s.reverse ? this.loops.rev : this.loops.fwd;
     node.loop = true;
+    if (full) { node.loopStart = this.full.start; node.loopEnd = this.full.buffer.duration; }
     node.playbackRate.value = s.rate;
     const gain = ctx.createGain();
     gain.gain.value = 0;
     gain.gain.setTargetAtTime(1, ctx.currentTime, XFADE / 3);
     node.connect(gain);
     gain.connect(this.pre);
-    node.start();
+    node.start(0, full ? this.full.start : 0);
     if (this.src) this._fadeOut(this.src, 0.04);
-    this.src = { node, gain, reverse: s.reverse };
+    this.src = { node, gain, reverse: s.reverse, full: !!full };
   }
 
   _fadeOut(src, secs) {
@@ -302,7 +309,8 @@ export class SampleDeck {
       this.filter.frequency.setTargetAtTime(s.lowpass, t, k);
       this.filter.Q.setTargetAtTime(s.q, t, k);
       this.shaper.curve = s.lowpass < 400 ? softClip(1.6) : null;
-      if (this.src && this.src.reverse !== s.reverse) this._startSource();
+      const wantFull = !!(this.clean && !s.reverse && this.full);
+      if (this.src && (this.src.reverse !== s.reverse || this.src.full !== wantFull)) this._startSource();
       else if (this.src) this.src.node.playbackRate.setTargetAtTime(s.rate, t, k);
     } else if (this.tier === 2 && this.el) {
       // No raw samples: reverse becomes a slowed, band-limited "radio" take, and
@@ -364,9 +372,10 @@ export class SampleDeck {
     if (this.tier === 2 && el && !el.paused) {
       // Loop the window by hand, dipping the level around the seam.
       const end = this.elStart + SNIPPET;
-      if (this.elSeek && !el.seeking && (el.currentTime >= end || el.currentTime < this.elStart - 0.5)) { try { el.currentTime = this.elStart; } catch { this.elSeek = false; } }
+      // Clean overtime lets the song play on past the hook.
+      if (this.elSeek && !this.clean && !el.seeking && (el.currentTime >= end || el.currentTime < this.elStart - 0.5)) { try { el.currentTime = this.elStart; } catch { this.elSeek = false; } }
       const pos = el.currentTime - this.elStart;
-      const seam = this.elSeek ? Math.min(1, Math.max(0, pos / 0.05), Math.max(0, (SNIPPET - pos) / 0.05)) : 1;
+      const seam = this.elSeek && !this.clean ? Math.min(1, Math.max(0, pos / 0.05), Math.max(0, (SNIPPET - pos) / 0.05)) : 1;
       const vol = this.audio.muted ? 0 : this.audio.volume * 0.9;
       const wobble = this.clock < this.wobbleUntil ? 0.6 : 1;
       el.volume = Math.max(0, Math.min(1, vol * seam * (this.elMuffle || 1) * wobble));

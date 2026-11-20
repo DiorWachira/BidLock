@@ -4,6 +4,7 @@ import { EggcrateDisplay } from './eggcrate.js';
 import { cleanName, normalizeCode, MAX_PLAYERS } from '../net/lobbyManager.js';
 import { GAMES, gameById } from '../arcade/games.js';
 import { GENRE_CHOICES, genreById, LEVELS, levelById } from '../games/sampleArena/itunesLoader.js';
+import { PROGRAMMES, programmeById, FILM_LEVELS } from '../games/coldOpen/filmLoader.js';
 import { checkConnection, explain, summary } from '../net/netCheck.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -11,11 +12,13 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 export class LobbyView {
   // colorsFor(seats) -> css colours; summary() -> one line describing the host's settings.
-  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {}, level = () => 'normal', onLevel = () => {} }) {
+  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {}, level = () => 'normal', onLevel = () => {}, programme = () => 'all', onProgramme = () => {} }) {
     this.defaultGame = defaultGame;
     this.genre = genre;
     this.level = level;
     this.onLevel = onLevel;
+    this.programme = programme;
+    this.onProgramme = onProgramme;
     this.onGenre = onGenre;
     this.lobby = lobby;
     this.saveName = saveName;
@@ -57,6 +60,8 @@ export class LobbyView {
       if (b && this.lobby.isHost) this.onGenre(b.dataset.genre);
       const l = e.target.closest('button[data-level]');
       if (l && this.lobby.isHost) this.onLevel(l.dataset.level);
+      const pg = e.target.closest('button[data-programme]');
+      if (pg && this.lobby.isHost) this.onProgramme(pg.dataset.programme);
     });
     this.el.checkBtn.addEventListener('click', () => this.runCheck());
     this.el.copy.addEventListener('click', () => this._copy());
@@ -230,8 +235,18 @@ export class LobbyView {
     this.el.games.dataset.host = host ? '1' : '0';
     const crate = genreById(state.genre || (host ? this.genre() : 'all')).id;
     const lvl = levelById(state.level || (host ? this.level() : 'normal')).id;
-    this.el.crates.hidden = state.game !== 'soundclash';
-    this.el.crates.innerHTML = state.game !== 'soundclash' ? '' : `<p class="lbl">SOUNDCLASH CRATE${host ? '' : ' · THE HOST PICKS'}</p>${GENRE_CHOICES.map((g) => `<button type="button" class="sc-crate" data-genre="${g.id}" aria-pressed="${g.id === crate}" ${host && !state.inMatch ? '' : 'disabled'}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}<p class="lbl">DIFFICULTY</p><div class="sc-level-list">${LEVELS.map((l) => `<button type="button" class="sc-level" data-level="${l.id}" aria-pressed="${l.id === lvl}" ${host && !state.inMatch ? '' : 'disabled'}><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('')}</div>`;
+    const picks = state.game === 'soundclash' || state.game === 'coldopen';
+    const can = host && !state.inMatch ? '' : 'disabled';
+    this.el.crates.hidden = !picks;
+    const levels = (list) => `<p class="lbl">DIFFICULTY</p><div class="sc-level-list">${list.map((l) => `<button type="button" class="sc-level" data-level="${l.id}" aria-pressed="${l.id === lvl}" ${can}><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('')}</div>`;
+    if (state.game === 'soundclash') {
+      this.el.crates.setAttribute('aria-label', 'Soundclash music crate');
+      this.el.crates.innerHTML = `<p class="lbl">SOUNDCLASH CRATE${host ? '' : ' · THE HOST PICKS'}</p>${GENRE_CHOICES.map((g) => `<button type="button" class="sc-crate" data-genre="${g.id}" aria-pressed="${g.id === crate}" ${can}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}${levels(LEVELS)}`;
+    } else if (state.game === 'coldopen') {
+      const prog = programmeById(state.programme || (host ? this.programme() : 'all')).id;
+      this.el.crates.setAttribute('aria-label', 'Cold Open programme');
+      this.el.crates.innerHTML = `<p class="lbl">TONIGHT'S PROGRAMME${host ? '' : ' · THE HOST PICKS'}</p>${PROGRAMMES.map((g) => `<button type="button" class="co-prog" data-programme="${g.id}" aria-pressed="${g.id === prog}" ${can}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}${levels(FILM_LEVELS)}`;
+    } else this.el.crates.innerHTML = '';
     const seats = host ? this.lobby.seats() : [
       ...state.players.filter((p) => !p.away).map((p) => ({ name: p.name, kind: 'human', pid: p.pid })),
     ];

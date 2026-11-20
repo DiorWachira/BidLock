@@ -289,7 +289,10 @@ export class SampleArenaGame extends GameBase {
         break;
       }
       case 'reveal': {
-        this.deck.stop(0.25);
+        // The song plays on, clean, while the answer goes up; the next round stops it.
+        this.deck.setUnderwater(false);
+        this.deck.setShock(null);
+        this.deck.setClean(true);
         this.el.dock.hidden = true; // sabotage is for live rounds
         if (this.stage) {
           this.stage.reveal({ art: d.art, title: d.title, artist: d.artist });

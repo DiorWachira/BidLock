@@ -1,4 +1,4 @@
-// The arcade's programme guide: three games on one channel. The shell reads this to
+// The arcade's programme guide: five shows on one channel. The shell reads this to
 // build the title-screen selector and the lobby's game picker, and to decide how many
 // seats bots should fill.
 
@@ -71,9 +71,27 @@ export const GAMES = Object.freeze([
     fillTo: 6,
     how: [
       'Each of eight rounds loops a three-second hook from a real song, warped: nightcore, chopped and screwed, underwater, or reversed. Pick the title from four with a click or 1 to 4.',
-      'Faster is richer: 1,000 points at the drop, 500 by eleven seconds. Then the warp lifts for five seconds of overtime, worth 350 to 150. You can change your answer until the clock runs out, but your time is when you last picked. Right answers in a row multiply: ×1.2, ×1.5, ×2.',
+      'Faster is richer: 1,000 points at the drop, 500 by seven seconds. Then the warp lifts and the song plays on, clean, for eight seconds of overtime, worth 350 to 150. You can change your answer until the clock runs out, but your time is when you last picked. Right answers in a row multiply: ×1.2, ×1.5, ×2.',
       'Points are ammunition. Once a round, throw a dubplate at a rival or the leader: Underwater (300) muffles their sound, Scratch (450) scrambles their buttons, Shockwave (600) flips their loop and their card. Z, X and C, and T to change target.',
       'The last round is the dubplate special: clean audio, double points, and a wrong answer costs 250. Pick a crate of music on the title screen or in the lobby.',
+    ],
+  },
+  {
+    id: 'coldopen',
+    name: 'Cold Open',
+    marquee: 'COLDOPEN',
+    slot: '23:00',
+    strap: 'The Late Movie',
+    kind: 'Name that film',
+    tagline: 'A few seconds of a real trailer through a faulty projector. Name the film before the changeover, then wreck your rivals’ picture from the booth.',
+    people: '1 to 6 players, 6 seats',
+    minSeats: 2,
+    fillTo: 6,
+    how: [
+      'Each of eight reels runs a few seconds of a real film trailer on a loop, through a fault: soft focus, a scratched print, a flipped reel, a squeezed widescreen print, a frame slipped out of the gate, an iris, or the negative. Pick the film from four with a click or 1 to 4.',
+      'Faster is richer: 1,000 points at the first frame, 500 by eleven seconds. Watch the top-right corner: two cue marks warn of the changeover, when the picture clears and the sound comes up for five seconds, worth 350 to 150. You can change your answer until the clock runs out. Right answers in a row multiply.',
+      'Points pay for the projection booth. Once a reel, hit a rival or the leader: Soft Focus (300) blurs their picture, Wrong Reel (450) cuts them to another film and mixes up their answers, Film Burn (600) burns through their picture and breaks their run. Z, X and C, and T to change target.',
+      'The last reel is the premiere: a clean print, double points, and a wrong answer costs 250. Pick a programme of films on the title screen or in the lobby: blockbusters, heroes and villains, animated, horror and thrillers, comedy and romance, or classics.',
     ],
   },
 ]);

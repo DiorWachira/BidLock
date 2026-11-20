@@ -8,7 +8,7 @@ BidLock is a browser auction game. Everyone gets the same $20 and has to draft a
 
 Every lot is shown with a real photograph, in a glass-and-gold frame on a 3D auction pedestal. Two sealed mystery crates turn up mid-show, an Oracle may hand someone a hard general-knowledge question for a half-price steal, and before the scores are opened there is a vault and a ten-second heist.
 
-The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, and a music game, **Soundclash**, that warps three seconds of a real song and asks you to name it. A room can move between all four without re-entering the code.
+The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, a music game, **Soundclash**, that warps three seconds of a real song and asks you to name it, and a film game, **Cold Open**, that runs a few seconds of a real trailer through a faulty projector. A room can move between all five without re-entering the code.
 
 It is a static site: plain HTML, CSS and ES modules, with no build step and no API key. Rooms go through a small room server of its own (`server/`, a Cloudflare Worker), with direct browser-to-browser connections as the fallback.
 
@@ -22,7 +22,7 @@ It is a static site: plain HTML, CSS and ES modules, with no build step and no A
 | --- | --- | --- |
 | ![Multiplayer lobby](screenshots/lobby.png) | ![A table of six](screenshots/room-six.png) | ![Heist board](screenshots/heist.png) |
 
-## Four shows on Channel 20
+## Five shows on Channel 20
 
 Pick a show on the title screen, or in the lobby when you host a room. After a game, the host takes the room back to the lobby, everyone can vote on what to play next, and the next game starts without anyone re-entering the code.
 
@@ -32,8 +32,9 @@ Pick a show on the title screen, or in the lobby when you host a room. After a g
 | **Trapdoor Royale** | Trivia elimination on a floating arena | 1 to 6 people, bots fill to 12 |
 | **Last Lamp** | Trivia survival in a lighthouse in a storm | 1 to 6 people, bots fill to 6 |
 | **Soundclash** | Name that tune from a warped three-second loop, with sabotage | 1 to 6 people, bots fill to 6 |
+| **Cold Open** | Name that film from a few seconds of a real trailer on a faulty projector, with sabotage from the booth | 1 to 6 people, bots fill to 6 |
 
-All four share the room-code lobby and the sound engine; the three quiz games share the trivia question engine.
+All five share the room-code lobby and the sound engine; the three quiz games share the trivia question engine, and Cold Open runs on Soundclash's rules engine.
 
 **Questions.** There are 310 built-in questions (`js/arcade/questionBank.js` plus the original 50), tagged easy, medium or hard, in four styles: straight questions, odd one out, which came first, and finish the saying. When the Open Trivia DB is reachable the quiz games also fetch 50 of its questions per match, across every category and difficulty, using a session token so the service does not send the same question twice. Each device remembers the last 900 questions it asked and holds them back until the rest have been used: playing offline and alternating the two games, the first repeat comes in match 22. Both games start easy and get harder as the match goes on. BidLock's Oracle draws from the 113 hardest general-knowledge questions.
 
@@ -112,7 +113,7 @@ A sound clash is a battle between sound systems, a tradition that started in Jam
 | Reverse spin | the three seconds played backwards |
 | Clean cut | the last round, the "dubplate special": unwarped, double points, and a wrong answer costs 250 |
 
-Name it with a click or 1 to 4. A right answer is worth 1,000 points at the drop, falling to 500 by eleven seconds. Then the warp lifts for five seconds of overtime, worth 350 falling to 150. You can change your answer until the clock runs out; your time is when you last picked. Right answers in a row multiply: ×1.2, ×1.5, then ×2.
+Name it with a click or 1 to 4. A right answer is worth 1,000 points at the drop, falling to 500 by seven seconds. Then the warp lifts and the song plays on, clean, for eight seconds of overtime, worth 350 falling to 150, and keeps playing under the reveal. You can change your answer until the clock runs out; your time is when you last picked. Right answers in a row multiply: ×1.2, ×1.5, then ×2.
 
 Points are also ammunition. Once a round you can throw a dubplate at a rival, or at whoever leads:
 
@@ -126,7 +127,7 @@ The house sounds answer faster for popular songs and worse under heavy warps. Oc
 
 **Crates and difficulty.** Pick the music on the title screen, or as host in the lobby: Global Pop & Chart Toppers; Hip-Hop, Rap & Trap; UK Grime, Drill & Afrobeats; 2000s & 2010s Throwback Anthems; Rock, Indie & Alt Classics; Anime Openings & Endings; or the All-Genre Shuffle.
 
-- **The artist crates.** Every artist a crate searches has a curated list of their famous songs (`js/games/sampleArena/hits.js`, checked against what the iTunes Search API actually returns). **Easy** asks only about those hits, uses only the gentle warps (nightcore, chopped and screwed) and puts every wrong answer by a different artist; **Normal** asks about the hits with every warp; **Hard** asks about everything else they have released. A match makes three to four searches and draws the wrong answers from them.
+- **The artist crates.** Every artist a crate searches has a curated list of their famous songs (`js/games/sampleArena/hits.js`, checked against what the iTunes Search API actually returns). **Easy** asks only about those hits, uses only the gentle warps (nightcore, chopped and screwed) and puts every wrong answer by a different artist; **Normal** asks about the hits with every warp; **Hard** asks about everything else they have released. A match searches five artists and draws the wrong answers from them. No artist supplies more than two of a match's eight answers, and every artist gets one before any gets a second, so a match never turns into one artist's greatest hits.
 - **Anime Openings & Endings.** Not artists but 59 named songs (`js/games/sampleArena/animeSongs.js`): openings, endings and film songs people know and love, from Gurenge and unravel to A Cruel Angel's Thesis, Blue Bird and Idol, each shown with its anime in brackets: "Gurenge (Demon Slayer)". Every song was checked on the store, by its artist, in its original version. A match searches for eleven of them (eight and three spares); the songs found are remembered on the device for a fortnight, so a run of matches stays under Apple's limit of about 20 searches a minute. The wrong answers come from the catalogue: on **Easy** from other anime by other artists, on **Hard** from the same anime where it can (three other Attack on Titan openings).
 
 Store listings drift, so `node tools/check-songs.mjs` re-checks the anime catalogue and every artist's hit list against the live store and prints what to fix (about eight minutes, paced for Apple's limit).
@@ -160,6 +161,63 @@ Sources:
 - [Technics SL-1200](https://en.wikipedia.org/wiki/Technics_SL-1200), Wikipedia; [Features of the SL-1200](https://www.technics.com/global/sl1200/features/), Technics
 - [AudioBufferSourceNode](https://developer.mozilla.org/en-US/docs/Web/API/AudioBufferSourceNode), MDN
 - [iTunes Search API](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/index.html), Apple
+
+### Cold Open: the late movie
+
+| A reel through a faulty print | Film burn, from the booth | The weekend box office |
+| --- | --- | --- |
+| ![Out of frame](screenshots/coldopen-live-play.png) | ![Film burn](screenshots/coldopen-live-burn.png) | ![Box office](screenshots/coldopen-boxoffice.png) |
+
+Channel 20's late movie, at 23:00. Each of eight reels runs a few seconds of a real film trailer on a loop, through a faulty projector, and offers four films:
+
+| Fault | What you see |
+| --- | --- |
+| Soft focus | the projectionist is still finding focus |
+| Scratched print | sepia, scratches, dust and a flicker |
+| Flipped | the reel went on the wrong way round: the picture is mirrored |
+| Squeezed 2× | a widescreen print shown without its anamorphic lens |
+| Out of frame | the frame has slipped in the gate and keeps rolling, the frame line across the picture |
+| Iris | a silent-film iris: one small circle of picture, wandering |
+| Negative | the colour negative, orange mask and all |
+| The premiere | the last reel: a clean print, double points, and a wrong answer costs 250 |
+
+Name it with a click or 1 to 4: 1,000 points at the first frame, falling to 500 by eleven seconds. Two cue marks in the top-right corner warn of the changeover, when the picture clears and the trailer's own sound comes up for five seconds, worth 350 to 150. You can change your answer until the clock runs out; right answers in a row multiply.
+
+From the projection booth, once a reel, at a rival or at whoever leads:
+
+| Sabotage | Cost | What it does |
+| --- | --- | --- |
+| Soft Focus | 300 | Blurs their picture for four seconds |
+| Wrong Reel | 450 | Cuts their screen to another film already shown, and mixes up their answers (and keys), for three seconds |
+| Film Burn | 600 | Burns a hole through their picture for three seconds, and breaks their run |
+
+**Programmes and difficulty.** All-Night Marathon (everything), Blockbusters, Heroes & Villains, Animated, Horror & Thrillers, Comedy & Romance, or Classics & Drama, on the title screen or as host in the lobby. **Easy** runs four seconds of film with the gentle faults and takes its wrong answers from other programmes and eras. **Normal** runs three seconds with most faults; the wrong answers come from the same programme, never a sequel. **Hard** runs two seconds with every fault, and the wrong answers are the film's own sequels, then films by the same director or studio: a Batman film against three other Batmans. Soundclash and Cold Open share one difficulty setting.
+
+**The library.** Apple's iTunes Search API stopped finding films in 2026 ([Apple developer forum](https://developer.apple.com/forums/thread/848610)), but a lookup by store ID still returns a film with its trailer. `js/games/coldOpen/films.js` holds 208 famous films, found through Apple's top-movie charts in six countries and each checked to have a trailer: 157 in the US store, the rest in the UK, Australian and Indian stores. A match looks up its eleven films (eight and three spares) in one call per store, and a device remembers what it found for a fortnight. `node tools/check-films.mjs` re-checks the whole library.
+
+**The projector.** Apple's trailers stream with byte ranges and keep their index at the front, so parking one mid-way downloads only the seconds around the clip, about half a megabyte. They also allow cross-origin use, so the picture goes through a WebGL shader as a video texture. The clip loops like a spliced film loop, with a flash at the join; at the changeover the loop lets go and the sound comes up through Web Audio. Guests thread the next reel while the current one runs. A clip starts between 16% and 72% of the way into its trailer: past the studio logos and rating card, and before the title card. The trailers are Apple's, provided to promote the store, so the reveal shows the poster and links to the film on Apple TV, and the screen credits the trailers.
+
+**Design: "the projection booth."** Every part of the screen comes from how films were shown on 35 mm:
+
+| Reference | Became |
+| --- | --- |
+| The SMPTE Universal Leader: the 8-to-2 countdown with a clock sweep and the "2-pop" | Each reel starts on a short leader (4, 3, 2 and the pop) |
+| Cue marks: the dots a projectionist watches for in the top-right corner, to start the second projector and then change over | The timer: two cue marks before the changeover, when the picture clears and the sound comes up |
+| Cinema marquees with slotted plastic letters, lit from behind | The four answers, spelled out tile by tile on a backlit letter board under a strip of chasing bulbs |
+| CinemaScope's 2× anamorphic squeeze | The "squeezed" fault: the print without its lens |
+| The silent-film iris shot | The "iris" fault |
+| Projection faults: a frame slipping out of the gate, soft focus, scratched prints, film burning in the gate | The other faults, and the booth's sabotage |
+| A one-sheet poster in a lightbox case | The reveal: the poster under a NOW SHOWING plate |
+| The weekend box office chart | The results: points become takings, and the awards are Best Picture, Quickest Eye, Booth Menace and Longest Run |
+
+Colour has one job each: the tungsten lamp's amber is the film (the clock, the marquee bulbs, your pick), red is the booth's sabotage, and green and red mark right and wrong.
+
+Sources:
+- [Film leader](https://en.wikipedia.org/wiki/Film_leader) and [Cue mark](https://en.wikipedia.org/wiki/Cue_mark), Wikipedia; [Change-over cues](https://www.nfsa.gov.au/preservation/preservation-glossary/change-over-cues), National Film and Sound Archive of Australia
+- [Changeable marquee letters](https://www.film-tech.com/ubb/f5/t001475.html), Film-Tech; [Wagner and Snap-Lok letters](https://cinematreasures.org/blog/2007/12/17/wanted-wagner-and-snap-lok-letters), Cinema Treasures
+- [Film dimensions and CinemaScope](https://www.widescreenmuseum.com/widescreen/filmdims.htm), American WideScreen Museum
+- [Iris shot](https://filmglossary.ccnmtl.columbia.edu/term/iris-shot), Columbia Film Language Glossary
+- [iTunes Search API](https://performance-partners.apple.com/search-api), Apple
 
 ### How the quiz games fit in
 
@@ -402,7 +460,7 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/ui/hud.js` | All in-match DOM painting, chyrons, boards, scorecard text |
 | `js/ui/lobbyView.js` | The lobby dialog |
 | `js/ui/guide.js` | First-run guide and help drawer |
-| `js/arcade/games.js` | The four shows: names, rules text, table sizes |
+| `js/arcade/games.js` | The five shows: names, rules text, table sizes |
 | `js/arcade/bots.js` | The twelve quiz-game bots and how they answer |
 | `js/arcade/quizBank.js` | Questions, true-or-false trios and quick sums for the quiz games |
 | `js/arcade/gameBase.js` | What the quiz games share: stepping or mirroring the engine, the room, results |
@@ -410,8 +468,12 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/render/kit3d.js` | Shared 3D helpers and the particle pool |
 | `js/games/trapdoorRoyale/` | Trapdoor Royale: rules engine, arena, screen |
 | `js/games/lastLamp/` | Last Lamp: rules engine, survival games, lighthouse, screen |
+| `js/games/sampleArena/` | Soundclash: rules engine, crate digger, three-tier audio, club, screen |
+| `js/games/coldOpen/` | Cold Open: the film library, rules (on Soundclash's engine), projector, cinema, screen |
 | `tools/serve.mjs` | Tiny static server for local play and tests |
 | `tools/check-media.mjs` | Verifies every lot's photograph |
+| `tools/check-songs.mjs` | Re-checks Soundclash's songs against the store |
+| `tools/check-films.mjs` | Re-checks Cold Open's films against the store |
 
 Match phases: `CATEGORY_INTRO → LOT_INTRO → BIDDING → SOLD → (REVEAL)` for each lot, with `ORACLE` possible between rounds, then `VAULT → HEIST → VERDICT`.
 
@@ -456,6 +518,8 @@ npm test
 - `tests/net.test.mjs` runs in plain Node: snapshot deltas that rebuild exactly (and save over half the bytes), ping measurement and its cap, the hammer's grace for a slow guest, back-dated answers, and fetched relay credentials.
 - `tests/soundclash.test.mjs` runs in plain Node: the crate digger against fake iTunes answers (filtering, artwork, eight fair rounds, the offline fallback), the scoring, 200 bot matches with every invariant, sabotage rules, secrets in snapshots, the synth tunes, and the seamless loop maker.
 - `tests/soundclash.e2e.mjs` drives the browser through the crate picker, all three audio tiers (a served WAV with CORS, the same file refused to `fetch`, and iTunes blocked), every sabotage, overtime, the reveal and the podium, a two-player room with a crate pick, and a 390 px phone.
+- `tests/coldopen.test.mjs` runs in plain Node: the film library (IDs, years, programmes big enough for a match), picking films and rivals at each level, a match loaded from a fake store (one lookup per store, a clip inside each trailer), the scoring, 150 bot matches, faults by level, and the booth's sabotage including the wrong reel's decoy.
+- `tests/coldopen.e2e.mjs` records a short colour-bar film in the browser and serves it as every trailer, with Apple's lookup and posters faked, then drives the programme picker, the library out of reach, a whole solo match (the leader, the looping clip, every sabotage, the changeover, the reveal, the box office), a 390 px phone, and a two-player room where the guest threads its own reels.
 - `tests/arcade.e2e.mjs` drives the browser through the channel guide, both quiz games solo, a room that votes, plays Trapdoor Royale, goes back to the lobby and plays Last Lamp, and both games on a 390 px phone.
 - `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
 - `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.
@@ -481,10 +545,10 @@ The empty `.nojekyll` file tells Pages to serve the files as they are.
 
 ## Notes
 
-- **What is fetched from the network:** the room server (only in a room), Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, and Soundclash's songs, previews and artwork from Apple's iTunes Search API. All three have built-in fallbacks. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
+- **What is fetched from the network:** the room server (only in a room), Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, Soundclash's songs, previews and artwork from Apple's iTunes Search API, and Cold Open's trailers and posters from Apple's store. All but Cold Open's films have built-in fallbacks; without them, Cold Open says so and the other shows play on. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
 - **Slow graphics.** If frames run slow the stage lowers its resolution and turns shadows off by itself.
 - **Sound starts on your first click or key press**, because browsers do not allow audio before that.
 
 ## Credits
 
-The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable. Soundclash's song previews and artwork are provided by Apple through the iTunes Search API and link back to Apple Music; the offline tunes are public-domain compositions, arranged for the house synth.
+The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable. Soundclash's song previews and artwork are provided by Apple through the iTunes Search API and link back to Apple Music; the offline tunes are public-domain compositions, arranged for the house synth. Cold Open's trailers and posters are provided by Apple and link back to each film on Apple TV.

@@ -23,6 +23,7 @@ import { roomServerUrl } from './net/roomServer.js';
 import { GAMES, gameById } from './arcade/games.js';
 import { botSeats } from './arcade/bots.js';
 import { GENRE_CHOICES, genreById, LEVELS, levelById } from './games/sampleArena/itunesLoader.js';
+import { PROGRAMMES, programmeById, FILM_LEVELS } from './games/coldOpen/filmLoader.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 
@@ -60,7 +61,8 @@ const settings = {
   marathon: !!store.get('marathon', false),
   game: gameById(store.get('game', 'bidlock')).id,
   genre: genreById(store.get('genre', 'all')).id,
-  level: levelById(store.get('scLevel', 'normal')).id,
+  level: levelById(store.get('scLevel', 'normal')).id, // Soundclash and Cold Open share it
+  programme: programmeById(store.get('programme', 'all')).id,
   volume: Math.max(0, Math.min(1, Number(store.get('volume', 0.7)) || 0)),
   muted: !!store.get('muted', false),
   theme: store.get('theme', 'dark') === 'light' ? 'light' : 'dark',
@@ -222,6 +224,7 @@ function applyModes() {
 function modeSummary() {
   const g = gameById(lobby.state.game);
   if (g.id === 'soundclash') return `${g.name}: crate ${genreById(lobby.state.genre || settings.genre).name}, ${levelById(lobby.state.level || settings.level).name.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
+  if (g.id === 'coldopen') return `${g.name}: ${programmeById(lobby.state.programme || settings.programme).name}, ${levelById(lobby.state.level || settings.level).name.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   if (g.id !== 'bidlock') return `${g.name}: ${g.kind.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   return `$${settings.budget} bankroll · ${settings.marathon ? 'Marathon, 8 rounds' : '6 rounds'}${settings.allIn ? ' · All-In for every player' : ''}. Change these on the title screen.`;
 }
@@ -318,6 +321,7 @@ const lobby = new LobbyManager({
     // A new room starts with this device's Soundclash crate.
     if (state.role === 'host' && state.status === 'open' && !state.genre) { lobby.setGenre(settings.genre); return; }
     if (state.role === 'host' && state.status === 'open' && !state.level) { lobby.setLevel(settings.level); return; }
+    if (state.role === 'host' && state.status === 'open' && !state.programme) { lobby.setProgramme(settings.programme); return; }
     if (lobbyView) lobbyView.render(state);
     const chip = $('#roomchip');
     const open = state.status === 'open' && state.role != null;
@@ -504,6 +508,8 @@ const shell = {
   // Soundclash's crate: the room's in a room, this device's otherwise.
   genre: () => (role === 'host' && lobby.state.genre ? lobby.state.genre : settings.genre),
   level: () => (role === 'host' && lobby.state.level ? lobby.state.level : settings.level),
+  // Cold Open's programme of films, the same way.
+  programme: () => (role === 'host' && lobby.state.programme ? lobby.state.programme : settings.programme),
 };
 
 async function loadGame(id) {
@@ -512,7 +518,9 @@ async function loadGame(id) {
       ? import('./games/trapdoorRoyale/royaleGame.js').then((m) => m.RoyaleGame)
       : id === 'soundclash'
         ? import('./games/sampleArena/sampleArenaGame.js').then((m) => m.SampleArenaGame)
-        : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
+        : id === 'coldopen'
+          ? import('./games/coldOpen/coldOpenGame.js').then((m) => m.ColdOpenGame)
+          : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
   }
   return gameModules[id];
 }
@@ -650,10 +658,51 @@ function selectGenre(id) {
   if (lobbyView) lobbyView.render(lobby.state);
 }
 
-function buildLevels() {
-  const wrap = $('#sc-level-list');
+// Cold Open: which programme of films.
+function buildProgrammes() {
+  const wrap = $('#co-prog-list');
   if (!wrap) return;
-  wrap.innerHTML = LEVELS.map((l) => `<button type="button" class="sc-level" role="radio" data-level="${l.id}" aria-checked="${l.id === settings.level}" tabindex="${l.id === settings.level ? 0 : -1}"><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('');
+  wrap.innerHTML = PROGRAMMES.map((g) => `<button type="button" class="co-prog" role="radio" data-programme="${g.id}" aria-checked="${g.id === settings.programme}" tabindex="${g.id === settings.programme ? 0 : -1}"><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('');
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.co-prog');
+    if (!b) return;
+    audio.unlock();
+    audio.blip();
+    selectProgramme(b.dataset.programme);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    const ids = PROGRAMMES.map((g) => g.id);
+    const i = ids.indexOf(settings.programme);
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+    selectProgramme(ids[(i + d + ids.length) % ids.length]);
+    wrap.querySelector(`[data-programme="${settings.programme}"]`).focus();
+  });
+}
+
+function selectProgramme(id) {
+  settings.programme = programmeById(id).id;
+  store.set('programme', settings.programme);
+  for (const b of document.querySelectorAll('#co-prog-list .co-prog')) {
+    const on = b.dataset.programme === settings.programme;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  if (lobby.isHost) lobby.setProgramme(settings.programme);
+  if (lobbyView) lobbyView.render(lobby.state);
+}
+
+// One difficulty for Soundclash and Cold Open, with a picker in each show's options.
+function buildLevels() {
+  buildLevelList('#sc-level-list', LEVELS);
+  buildLevelList('#co-level-list', FILM_LEVELS);
+}
+
+function buildLevelList(sel, levels) {
+  const wrap = $(sel);
+  if (!wrap) return;
+  wrap.innerHTML = levels.map((l) => `<button type="button" class="sc-level" role="radio" data-level="${l.id}" aria-checked="${l.id === settings.level}" tabindex="${l.id === settings.level ? 0 : -1}"><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('');
   wrap.addEventListener('click', (e) => {
     const b = e.target.closest('.sc-level');
     if (!b) return;
@@ -675,7 +724,7 @@ function buildLevels() {
 function selectLevel(id) {
   settings.level = levelById(id).id;
   store.set('scLevel', settings.level);
-  for (const b of document.querySelectorAll('#sc-level-list .sc-level')) {
+  for (const b of document.querySelectorAll('#sc-level-list .sc-level, #co-level-list .sc-level')) {
     const on = b.dataset.level === settings.level;
     b.setAttribute('aria-checked', String(on));
     b.tabIndex = on ? 0 : -1;
@@ -696,6 +745,7 @@ function selectGame(id) {
   }
   $('#bidlock-opts').hidden = g.id !== 'bidlock';
   $('#soundclash-opts').hidden = g.id !== 'soundclash';
+  $('#coldopen-opts').hidden = g.id !== 'coldopen';
   $('#hero').hidden = g.id !== 'bidlock';
   $('#strap-text').innerHTML = g.id === 'bidlock' ? `The $<span id="strap-budget">${settings.budget}</span> Draft` : esc(g.strap);
   $('#title-tagline').textContent = g.tagline;
@@ -1416,6 +1466,7 @@ async function boot() {
   });
   buildChannels();
   buildCrates();
+  buildProgrammes();
   buildLevels();
   lobbyView = new LobbyView({
     lobby,
@@ -1427,6 +1478,8 @@ async function boot() {
     onGenre: (id) => { audio.blip(); selectGenre(id); },
     level: () => settings.level,
     onLevel: (id) => { audio.blip(); selectLevel(id); },
+    programme: () => settings.programme,
+    onProgramme: (id) => { audio.blip(); selectProgramme(id); },
     summary: modeSummary,
     onStart: startRoom,
     onOpen: () => {},
