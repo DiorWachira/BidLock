@@ -1,11 +1,13 @@
 // COLD OPEN: the film library. Famous films, each found in an Apple store by its ID (the
 // iTunes search no longer finds films, but a lookup by ID does) and checked to have a
-// trailer. `store` is the country store that has it (default us). `series` keeps sequels
-// apart except on Hard; `by` groups a director or studio, for Hard's rivals.
+// trailer. `store` is the country store that has it (default us). Only English-language
+// stores (us, gb, au): other stores' trailers can carry burned-in subtitles. `series` keeps
+// sequels apart except on Hard; `by` groups a director or studio, for Hard's rivals.
 // Re-check with: node tools/check-films.mjs
 
 export const FILMS = Object.freeze([
   // blockbusters
+  { id: '548593580', title: 'Raiders of the Lost Ark', year: 1981, crate: 'blockbusters', by: 'spielberg' },
   { id: '544128124', title: 'E.T. the Extra-Terrestrial', year: 1982, crate: 'blockbusters', by: 'spielberg' },
   { id: '271991087', title: 'The Terminator', year: 1984, crate: 'blockbusters', series: 'terminator', by: 'cameron' },
   { id: '380239015', title: 'Back to the Future', year: 1985, crate: 'blockbusters', by: 'zemeckis' },
@@ -32,7 +34,6 @@ export const FILMS = Object.freeze([
   { id: '960891136', title: 'Interstellar', year: 2014, crate: 'blockbusters', by: 'nolan' },
   { id: '928911988', title: 'John Wick', year: 2014, crate: 'blockbusters' },
   { id: '1039586890', title: 'The Martian', year: 2015, crate: 'blockbusters', by: 'rscott' },
-  { id: '1410849965', store: 'in', title: 'Mission: Impossible – Fallout', year: 2018, crate: 'blockbusters' },
   { id: '1353708415', store: 'au', title: 'Ready Player One', year: 2018, crate: 'blockbusters', by: 'spielberg' },
   { id: '1585877256', title: 'Dune', year: 2021, crate: 'blockbusters', series: 'dune' },
   { id: '1676858107', title: 'Avatar: The Way of Water', year: 2022, crate: 'blockbusters', by: 'cameron' },
@@ -93,7 +94,7 @@ export const FILMS = Object.freeze([
   { id: '1843806631', title: 'Your Name', year: 2016, crate: 'animated' },
   { id: '1084138493', title: 'Zootopia', year: 2016, crate: 'animated', by: 'disney' },
   { id: '1311049082', store: 'gb', title: 'Coco', year: 2017, crate: 'animated', by: 'pixar' },
-  { id: '1392282463', store: 'in', title: 'Paddington 2', year: 2017, crate: 'animated', series: 'paddington' },
+  { id: '1762098950', store: 'au', title: 'Paddington 2', year: 2017, crate: 'animated', series: 'paddington' },
   { id: '1440667380', store: 'au', title: 'The Grinch', year: 2018, crate: 'animated', by: 'illumination' },
   { id: '1486720024', title: 'Frozen II', year: 2019, crate: 'animated', series: 'frozen', by: 'disney' },
   { id: '1598277918', title: 'Encanto', year: 2021, crate: 'animated', by: 'disney' },
@@ -104,11 +105,11 @@ export const FILMS = Object.freeze([
   // horror
   { id: '284289301', title: 'Psycho', year: 1960, crate: 'horror' },
   { id: '572533870', title: 'The Exorcist', year: 1973, crate: 'horror' },
+  { id: '526768967', title: 'Jaws', year: 1975, crate: 'horror', by: 'spielberg' },
   { id: '1802100718', title: 'Halloween', year: 1978, crate: 'horror' },
   { id: '361991150', title: 'Alien', year: 1979, crate: 'horror', by: 'rscott' },
   { id: '522395870', title: 'The Shining', year: 1980, crate: 'horror' },
   { id: '308625280', title: 'A Nightmare on Elm Street', year: 1984, crate: 'horror', by: 'craven' },
-  { id: '1090615483', store: 'in', title: 'Ghostbusters', year: 1984, crate: 'horror' },
   { id: '601284107', title: 'Gremlins', year: 1984, crate: 'horror' },
   { id: '621368502', title: 'The Lost Boys', year: 1987, crate: 'horror' },
   { id: '300887252', title: 'The Silence of the Lambs', year: 1991, crate: 'horror' },
@@ -126,7 +127,7 @@ export const FILMS = Object.freeze([
   { id: '917932687', store: 'gb', title: 'Gone Girl', year: 2014, crate: 'horror', by: 'fincher' },
   { id: '1202441786', title: 'Get Out', year: 2017, crate: 'horror', by: 'peele' },
   { id: '1275323693', title: 'It', year: 2017, crate: 'horror' },
-  { id: '1357309202', store: 'in', title: 'A Quiet Place', year: 2018, crate: 'horror' },
+  { id: '1356850151', title: 'A Quiet Place', year: 2018, crate: 'horror' },
   { id: '1382447562', title: 'Hereditary', year: 2018, crate: 'horror' },
   { id: '1434028031', title: 'The Nun', year: 2018, crate: 'horror', series: 'conjuring' },
   { id: '1822863346', title: 'Parasite', year: 2019, crate: 'horror' },
@@ -152,6 +153,7 @@ export const FILMS = Object.freeze([
   { id: '532055046', title: 'Jumanji', year: 1995, crate: 'comedy', series: 'jumanji' },
   { id: '188765138', title: '10 Things I Hate About You', year: 1999, crate: 'comedy' },
   { id: '618344183', store: 'gb', title: 'Notting Hill', year: 1999, crate: 'comedy' },
+  { id: '295119433', title: 'Meet the Parents', year: 2000, crate: 'comedy' },
   { id: '261128362', title: 'Legally Blonde', year: 2001, crate: 'comedy' },
   { id: '188703211', title: 'The Princess Diaries', year: 2001, crate: 'comedy' },
   { id: '209107744', title: 'Zoolander', year: 2001, crate: 'comedy' },
@@ -169,7 +171,6 @@ export const FILMS = Object.freeze([
   { id: '534553278', store: 'gb', title: 'Easy A', year: 2010, crate: 'comedy' },
   { id: '533380709', store: 'gb', title: 'Grown Ups', year: 2010, crate: 'comedy' },
   { id: '450702554', title: 'Bridesmaids', year: 2011, crate: 'comedy' },
-  { id: '1083225574', store: 'in', title: '21 Jump Street', year: 2012, crate: 'comedy' },
   { id: '568624173', title: 'Pitch Perfect', year: 2012, crate: 'comedy' },
   { id: '558133171', store: 'gb', title: 'Ted', year: 2012, crate: 'comedy' },
   { id: '828777452', title: 'The Grand Budapest Hotel', year: 2014, crate: 'comedy' },
@@ -198,7 +199,7 @@ export const FILMS = Object.freeze([
   { id: '311726400', title: 'The Truman Show', year: 1998, crate: 'classics' },
   { id: '290531770', title: 'Fight Club', year: 1999, crate: 'classics', by: 'fincher' },
   { id: '188765164', title: 'Remember the Titans', year: 2000, crate: 'classics' },
-  { id: '599177836', store: 'in', title: 'Catch Me If You Can', year: 2002, crate: 'classics', by: 'spielberg' },
+  { id: '315299220', title: 'Catch Me If You Can', year: 2002, crate: 'classics', by: 'spielberg' },
   { id: '210158017', title: 'Coach Carter', year: 2005, crate: 'classics' },
   { id: '526044199', title: 'The Departed', year: 2006, crate: 'classics', by: 'scorsese' },
   { id: '209960866', title: 'The Prestige', year: 2006, crate: 'classics', by: 'nolan' },
