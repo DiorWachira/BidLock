@@ -8,7 +8,7 @@ BidLock is a browser auction game. Everyone gets the same $20 and has to draft a
 
 Every lot is shown with a real photograph, in a glass-and-gold frame on a 3D auction pedestal. Two sealed mystery crates turn up mid-show, an Oracle may hand someone a hard general-knowledge question for a half-price steal, and before the scores are opened there is a vault and a ten-second heist.
 
-The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, a music game, **Soundclash**, that warps three seconds of a real song and asks you to name it, and a film game, **Cold Open**, that runs a few seconds of a real trailer through a faulty projector. A room can move between all five without re-entering the code.
+The same channel also shows two party quiz games for up to twelve, **Trapdoor Royale** and **Last Lamp**, a music game, **Soundclash**, that warps three seconds of a real song and asks you to name it, a film game, **Cold Open**, that runs a few seconds of a real trailer through a faulty projector, and a bluffing game, **Fine Print**, where you write a fake ending to a strange but true fact and try to fool your friends. A room can move between all six without re-entering the code.
 
 It is a static site: plain HTML, CSS and ES modules, with no build step and no API key. Rooms go through a small room server of its own (`server/`, a Cloudflare Worker), with direct browser-to-browser connections as the fallback.
 
@@ -22,7 +22,7 @@ It is a static site: plain HTML, CSS and ES modules, with no build step and no A
 | --- | --- | --- |
 | ![Multiplayer lobby](screenshots/lobby.png) | ![A table of six](screenshots/room-six.png) | ![Heist board](screenshots/heist.png) |
 
-## Five shows on Channel 20
+## Six shows on Channel 20
 
 Pick a show on the title screen, or in the lobby when you host a room. After a game, the host takes the room back to the lobby, everyone can vote on what to play next, and the next game starts without anyone re-entering the code.
 
@@ -33,8 +33,9 @@ Pick a show on the title screen, or in the lobby when you host a room. After a g
 | **Last Lamp** | Trivia survival in a lighthouse in a storm | 1 to 6 people, bots fill to 6 |
 | **Soundclash** | Name that tune from a warped three-second loop, with sabotage | 1 to 6 people, bots fill to 6 |
 | **Cold Open** | Name that film from a few seconds of a real trailer on a faulty projector, with sabotage from the booth | 1 to 6 people, bots fill to 6 |
+| **Fine Print** | Bluffing: write a fake ending to a true fact, then spot the real one among everyone's fakes | 1 to 6 people, bots fill to 6 |
 
-All five share the room-code lobby and the sound engine; the three quiz games share the trivia question engine, and Cold Open runs on Soundclash's rules engine.
+All six share the room-code lobby and the sound engine; the three quiz games share the trivia question engine, and Cold Open runs on Soundclash's rules engine.
 
 **Questions.** There are 310 built-in questions (`js/arcade/questionBank.js` plus the original 50), tagged easy, medium or hard, in four styles: straight questions, odd one out, which came first, and finish the saying. When the Open Trivia DB is reachable the quiz games also fetch 50 of its questions per match, across every category and difficulty, using a session token so the service does not send the same question twice. Each device remembers the last 900 questions it asked and holds them back until the rest have been used: playing offline and alternating the two games, the first repeat comes in match 22. Both games start easy and get harder as the match goes on. BidLock's Oracle draws from the 113 hardest general-knowledge questions.
 
@@ -219,9 +220,61 @@ Sources:
 - [Iris shot](https://filmglossary.ccnmtl.columbia.edu/term/iris-shot), Columbia Film Language Glossary
 - [iTunes Search API](https://performance-partners.apple.com/search-api), Apple
 
+### Fine Print: the overnight shopping hour
+
+| The small print, read out | The genuine article | The overnight sales figures |
+| --- | --- | --- |
+| ![The call board](screenshots/fineprint-call.png) | ![The reveal](screenshots/fineprint-reveal.png) | ![Results](screenshots/fineprint-results.png) |
+
+Channel 20 at 01:00: teleshopping, and a bluffing game. Each of five offers is a strange but true fact with its ending in the small print, blanked out: *"In 1932, the Australian army went to war against ___."*
+
+1. **Write a knock-off.** Everyone writes a fake ending that sounds true, up to 60 characters. Stuck? The warehouse offers a few of the house's own. Write the real ending (or something too close to it) and the host bounces it: write a fake one.
+2. **Call in.** The knock-offs are shuffled in with the genuine article and read out at speed, like the small print at the end of an advert, while the words light up on screen. Phone in the line you think is genuine: click it or press its number. Not your own. One five-star review a round (S, then the line) goes to the line you liked best.
+3. **The reveal.** The knock-offs that sold are unmasked one by one, struck through and tagged with whoever wrote them, then the genuine article gets its starburst, the blank fills in, and the source is linked.
+
+| | Points |
+| --- | --- |
+| Find the genuine article | 1,000 |
+| Each caller your knock-off fools | 500 |
+| Each five-star review of your line | 100 |
+
+Offers three and four are **premium rate** (double); the fifth is **the closing offer** (triple). Two players who write the same knock-off share one line and both score from it. A thin board is padded with the house's own knock-offs, which fool people for nobody's benefit. The awards are Top of the Tote, Top Seller (most callers fooled), Sharpest Shopper (most genuine articles found) and Customer Favourite (most five-star reviews).
+
+**The catalogue.** `js/games/finePrint/facts.js` holds 92 facts in six departments: Pets & Wildlife, Antiques & Collectibles, Kitchen & Dining, Science & Space, Gadgets & Gizmos, and Toys & Showbiz, or the whole catalogue. Each has its true ending, other ways of writing it that also count as the truth (so "the emus", "EMUS!" and "giant emus" all bounce), six ready-made fakes for the bots, and the Wikipedia article that backs it up. The tests check that no ready-made fake reads as the truth, and that no fact gives its own ending away. A device remembers its last 60 facts and serves new ones first. `node tools/check-facts.mjs` checks that every source is still a Wikipedia article.
+
+**The voice.** The reading is the browser's own speech engine (the Web Speech API), so nothing is downloaded and each device speaks for itself. The offer is read at a presenter's pace, the small print at 1.75 times normal speed. Where the browser reports word boundaries the words light up as they are spoken; where it does not, a timer estimates it. The voice follows the volume and mute buttons, and V (or the VOICE chip) turns it off; the game plays the same without it. Fine Print fetches nothing from the network.
+
+**Secrets.** The host keeps who wrote what, who called which line, and which line is genuine until the reveal. Guests are sent the lines' text only when the lines open, and never the fact's own ID (many IDs are the answer). A guest finds its own line by matching what it filed.
+
+**Design: "the overnight shopping hour."** Every part of the screen comes from late-night teleshopping:
+
+| Reference | Became |
+| --- | --- |
+| The fast-talking disclaimer voice-over; John Moschitta Jr.'s 1981 FedEx advert, at 586 words a minute | Every line is read aloud fast by the browser's voice, and lights up word by word |
+| The FTC's 1970 policy that a TV disclosure must run in the audio and the video at once, and its later campaign against fine print nobody can read | The small print is shown and spoken together, in readable type; the house's own disclaimers run in a crawl along the foot of the screen and paper the studio's back wall |
+| "Supers" with an asterisk pointing to the small print | The offer plate: a chroma-key blue super with the ending withheld behind an asterisk |
+| Ron Popeil's demonstrations and the product turntable | Each offer is a carton turning on a turntable in the 3D studio |
+| "Operators are standing by": the phone bank | Every player is an operator at a desk phone, with a call lamp that lights when they file and again when they phone in; the answers are numbered lines |
+| The telethon tote board, which ran out of digits in 1966 and had a seventh painted on by hand | Scores roll on number drums; past 9,999 a painted-on digit appears |
+| The shopping channel's on-screen countdown clock | The on-air clock for the writing and for the lines |
+| Starburst stickers, "genuine article" and "accept no imitations" | The genuine article gets the one yellow on the screen, in a starburst; knock-offs are struck through and tagged with their author |
+| Fictionary, the dictionary parlour game, and Balderdash (1984) | The mechanic: bluff a believable answer among the real one |
+
+Colour has one job each: chroma-key blue is the show's set, starburst yellow is only ever the genuine article, red marks a knock-off and the last five seconds, and each player keeps their own colour. The character count under the field appears only near the 60-character limit, following the GOV.UK Design System's character-count pattern.
+
+Sources:
+- [John Moschitta Jr.](https://en.wikipedia.org/wiki/John_Moschitta_Jr.), Wikipedia; [FedEx's fast-talking man](https://www.thedrum.com/news/2022/06/07/best-ads-all-time-fedex-fast-talking-man), The Drum
+- [Clear and conspicuous disclosure in television advertising (1970)](https://www.ftc.gov/sites/default/files/attachments/enforcement-policy-statements/701021disclosurestvads.pdf) and [Full disclosure (2014)](https://www.ftc.gov/news-events/blogs/business-blog/2014/09/full-disclosure), Federal Trade Commission
+- [Ron Popeil](https://en.wikipedia.org/wiki/Ron_Popeil), Wikipedia; [Operators Are Standing By](https://allthetropes.org/wiki/Operators_Are_Standing_By), All The Tropes
+- [A brief history of the Jerry Lewis telethon](https://www.mentalfloss.com/article/22706/brief-history-jerry-lewis-telethon), Mental Floss
+- [The shopping-channel clock](https://community.qvc.com/t5/Customer-Care/Can-you-add-a-clock-when-showing-an-item/m-p/8278120), QVC Community
+- [Fictionary](https://en.wikipedia.org/wiki/Fictionary) and [Balderdash](https://en.wikipedia.org/wiki/Balderdash), Wikipedia
+- [SpeechSynthesisUtterance: boundary event](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesisUtterance/boundary_event), MDN; [browser support](https://caniuse.com/mdn-api_speechsynthesisutterance_boundary_event), Can I Use
+- [Character count](https://design-system.service.gov.uk/components/character-count), GOV.UK Design System
+
 ### How the quiz games fit in
 
-Each arcade game is a pure rules engine (`royaleEngine.js`, `lampEngine.js` with `undertowMinigames.js`, `sampleArenaEngine.js`) plus a Three.js scene and a screen. They follow the same pattern as BidLock's auction engine: deterministic for a seed, with `serialize()` and `hydrate()` so a guest's browser mirrors the host's match. On the wire they use one envelope each way: the host sends `G` (an event and a snapshot) and `GT` (clock ticks); players send `GI` (an input). Nothing secret leaves the host before it is revealed: not the right answer, not anyone's secret answer, not the loosened plank, not who chose to shove, not which statements are true. In Soundclash the right title and everyone's picks stay on the host until the reveal; guests do get each round's preview URL, because their own speakers have to play it.
+Each arcade game is a pure rules engine (`royaleEngine.js`, `lampEngine.js` with `undertowMinigames.js`, `sampleArenaEngine.js`, `finePrintEngine.js`) plus a Three.js scene and a screen. They follow the same pattern as BidLock's auction engine: deterministic for a seed, with `serialize()` and `hydrate()` so a guest's browser mirrors the host's match. On the wire they use one envelope each way: the host sends `G` (an event and a snapshot) and `GT` (clock ticks); players send `GI` (an input). Nothing secret leaves the host before it is revealed: not the right answer, not anyone's secret answer, not the loosened plank, not who chose to shove, not which statements are true. In Soundclash the right title and everyone's picks stay on the host until the reveal; guests do get each round's preview URL, because their own speakers have to play it.
 
 In Trapdoor Royale the shared state is which platform each contestant has chosen, not where their feet are. Each browser runs the avatars to their platforms itself, so twelve contestants stay in step without streaming positions.
 
@@ -460,7 +513,7 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/ui/hud.js` | All in-match DOM painting, chyrons, boards, scorecard text |
 | `js/ui/lobbyView.js` | The lobby dialog |
 | `js/ui/guide.js` | First-run guide and help drawer |
-| `js/arcade/games.js` | The five shows: names, rules text, table sizes |
+| `js/arcade/games.js` | The six shows: names, rules text, table sizes |
 | `js/arcade/bots.js` | The twelve quiz-game bots and how they answer |
 | `js/arcade/quizBank.js` | Questions, true-or-false trios and quick sums for the quiz games |
 | `js/arcade/gameBase.js` | What the quiz games share: stepping or mirroring the engine, the room, results |
@@ -470,10 +523,12 @@ The engine is pure: no DOM, no audio, no rendering, and deterministic for a give
 | `js/games/lastLamp/` | Last Lamp: rules engine, survival games, lighthouse, screen |
 | `js/games/sampleArena/` | Soundclash: rules engine, crate digger, three-tier audio, club, screen |
 | `js/games/coldOpen/` | Cold Open: the film library, rules (on Soundclash's engine), projector, cinema, screen |
+| `js/games/finePrint/` | Fine Print: the fact catalogue, rules engine, voice-over, shopping studio, screen |
 | `tools/serve.mjs` | Tiny static server for local play and tests |
 | `tools/check-media.mjs` | Verifies every lot's photograph |
 | `tools/check-songs.mjs` | Re-checks Soundclash's songs against the store |
 | `tools/check-films.mjs` | Re-checks Cold Open's films against the store |
+| `tools/check-facts.mjs` | Checks that every Fine Print fact's source is a Wikipedia article |
 
 Match phases: `CATEGORY_INTRO → LOT_INTRO → BIDDING → SOLD → (REVEAL)` for each lot, with `ORACLE` possible between rounds, then `VAULT → HEIST → VERDICT`.
 
@@ -520,6 +575,8 @@ npm test
 - `tests/soundclash.e2e.mjs` drives the browser through the crate picker, all three audio tiers (a served WAV with CORS, the same file refused to `fetch`, and iTunes blocked), every sabotage, overtime, the reveal and the podium, a two-player room with a crate pick, and a 390 px phone.
 - `tests/coldopen.test.mjs` runs in plain Node: the film library (IDs, years, programmes big enough for a match), picking films and rivals at each level, a match loaded from a fake store (one lookup per store, a clip inside each trailer), the scoring, 150 bot matches, faults by level, and the booth's sabotage including the wrong reel's decoy.
 - `tests/coldopen.e2e.mjs` records a short colour-bar film in the browser and serves it as every trailer, with Apple's lookup and posters faked, then drives the programme picker, the library out of reach, a whole solo match (the leader, the looping clip, every sabotage, the changeover, the reveal, the box office), a 390 px phone, and a two-player room where the guest threads its own reels.
+- `tests/fineprint.test.mjs` runs in plain Node: the catalogue (one blank per fact, six fakes, none of which reads as the truth, and no fact giving its own ending away), what counts as the truth and what a player may type (control and direction-changing characters removed), the rate card, picking facts a device has not seen, 200 bot matches whose points always add up, duplicate knock-offs sharing a line, the scoring of a scripted round, and secrets in snapshots.
+- `tests/fineprint.e2e.mjs` drives the department picker, a whole solo match (the real ending bouncing, the warehouse, filing, the call board read out word by word, calling by key, a five-star review, the reveal, premium rate, the sales figures), a 390 px phone, light mode, and a two-player room where the guest writes and calls from their own browser.
 - `tests/arcade.e2e.mjs` drives the browser through the channel guide, both quiz games solo, a room that votes, plays Trapdoor Royale, goes back to the lobby and plays Last Lamp, and both games on a 390 px phone.
 - `tests/engine.test.mjs` runs in plain Node. It checks the database, then plays several hundred simulated matches at tables of two to six, asserting that money is accounted for, every slot is filled, no lot is owned twice and scores add up. It also covers the Oracle (half-price, free and failed steals), the question bank, and that a mirror rebuilt from snapshots agrees with the host after every event.
 - `tests/e2e.mjs` drives Edge or Chrome through the title, guide, run sheet, solo bidding with photographs, the no-photograph fallback, both Oracle paths, crate, vault, heist, verdict, a two-player room from create to "back to lobby", a six-player room with a guest dropping out, a whole unattended match, and a 390 px phone. Those run offline against fixtures. Two last sections use the real network (Wikipedia photographs, and one real WebRTC room) and are reported as skipped if it is down. The run also writes the images in `screenshots/`.
@@ -545,10 +602,10 @@ The empty `.nojekyll` file tells Pages to serve the files as they are.
 
 ## Notes
 
-- **What is fetched from the network:** the room server (only in a room), Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, Soundclash's songs, previews and artwork from Apple's iTunes Search API, and Cold Open's trailers and posters from Apple's store. All but Cold Open's films have built-in fallbacks; without them, Cold Open says so and the other shows play on. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
+- **What is fetched from the network:** the room server (only in a room), Three.js and (only when you open the lobby) PeerJS from a CDN, lot photographs from Wikipedia, trivia questions from the Open Trivia DB, Soundclash's songs, previews and artwork from Apple's iTunes Search API, and Cold Open's trailers and posters from Apple's store. Fine Print fetches nothing: its facts are built in and its voice is the browser's own. All but Cold Open's films have built-in fallbacks; without them, Cold Open says so and the other shows play on. Without Three.js the feed shows a NO SIGNAL card and the auction still plays from the desk.
 - **Slow graphics.** If frames run slow the stage lowers its resolution and turns shadows off by itself.
 - **Sound starts on your first click or key press**, because browsers do not allow audio before that.
 
 ## Credits
 
-The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable. Soundclash's song previews and artwork are provided by Apple through the iTunes Search API and link back to Apple Music; the offline tunes are public-domain compositions, arranged for the house synth. Cold Open's trailers and posters are provided by Apple and link back to each film on Apple TV.
+The format is inspired by YouTube draft-auction videos in which a group builds lineups on a $20 budget. BidLock is an original game: the rivals, rules, sound and code are its own, and it is not affiliated with or endorsed by any creator, channel or brand whose products appear as lots. Lot photographs are by Wikimedia Commons contributors. Trivia questions are from the Open Trivia DB (CC BY-SA 4.0) when it is reachable. Soundclash's song previews and artwork are provided by Apple through the iTunes Search API and link back to Apple Music; the offline tunes are public-domain compositions, arranged for the house synth. Cold Open's trailers and posters are provided by Apple and link back to each film on Apple TV. Fine Print's mechanic descends from the parlour game Fictionary and the board game Balderdash; its facts are checked against, and link to, Wikipedia.

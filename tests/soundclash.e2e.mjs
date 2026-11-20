@@ -162,7 +162,7 @@ try {
   {
     const ctx = await context(browser);
     const { page: p, errors } = await page(ctx, Q);
-    ok('the title lists five shows', (await p.locator('#channels .channel').count()) === 5);
+    ok('the title lists six shows', (await p.locator('#channels .channel').count()) === 6);
     ok('the crate picker is hidden for BidLock', !(await p.locator('#soundclash-opts').isVisible()));
     await p.locator('.channel[data-game="soundclash"]').click();
     ok('picking Soundclash shows the crates', await p.locator('#soundclash-opts').isVisible() && (await p.locator('.sc-crate').count()) === 7);

@@ -24,6 +24,7 @@ import { GAMES, gameById } from './arcade/games.js';
 import { botSeats } from './arcade/bots.js';
 import { GENRE_CHOICES, genreById, LEVELS, levelById } from './games/sampleArena/itunesLoader.js';
 import { PROGRAMMES, programmeById, FILM_LEVELS } from './games/coldOpen/filmLoader.js';
+import { DEPARTMENTS, deptById } from './games/finePrint/facts.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 
@@ -63,6 +64,7 @@ const settings = {
   genre: genreById(store.get('genre', 'all')).id,
   level: levelById(store.get('scLevel', 'normal')).id, // Soundclash and Cold Open share it
   programme: programmeById(store.get('programme', 'all')).id,
+  dept: deptById(store.get('fpDept', 'all')).id, // Fine Print's department of facts
   volume: Math.max(0, Math.min(1, Number(store.get('volume', 0.7)) || 0)),
   muted: !!store.get('muted', false),
   theme: store.get('theme', 'dark') === 'light' ? 'light' : 'dark',
@@ -225,6 +227,7 @@ function modeSummary() {
   const g = gameById(lobby.state.game);
   if (g.id === 'soundclash') return `${g.name}: crate ${genreById(lobby.state.genre || settings.genre).name}, ${levelById(lobby.state.level || settings.level).name.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   if (g.id === 'coldopen') return `${g.name}: ${programmeById(lobby.state.programme || settings.programme).name}, ${levelById(lobby.state.level || settings.level).name.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
+  if (g.id === 'fineprint') return `${g.name}: ${deptById(lobby.state.dept || settings.dept).name}. With bots on, the table fills to ${g.fillTo}.`;
   if (g.id !== 'bidlock') return `${g.name}: ${g.kind.toLowerCase()}. With bots on, the table fills to ${g.fillTo}.`;
   return `$${settings.budget} bankroll · ${settings.marathon ? 'Marathon, 8 rounds' : '6 rounds'}${settings.allIn ? ' · All-In for every player' : ''}. Change these on the title screen.`;
 }
@@ -322,6 +325,7 @@ const lobby = new LobbyManager({
     if (state.role === 'host' && state.status === 'open' && !state.genre) { lobby.setGenre(settings.genre); return; }
     if (state.role === 'host' && state.status === 'open' && !state.level) { lobby.setLevel(settings.level); return; }
     if (state.role === 'host' && state.status === 'open' && !state.programme) { lobby.setProgramme(settings.programme); return; }
+    if (state.role === 'host' && state.status === 'open' && !state.dept) { lobby.setDept(settings.dept); return; }
     if (lobbyView) lobbyView.render(state);
     const chip = $('#roomchip');
     const open = state.status === 'open' && state.role != null;
@@ -510,6 +514,8 @@ const shell = {
   level: () => (role === 'host' && lobby.state.level ? lobby.state.level : settings.level),
   // Cold Open's programme of films, the same way.
   programme: () => (role === 'host' && lobby.state.programme ? lobby.state.programme : settings.programme),
+  // Fine Print's department of facts, the same way.
+  dept: () => (role === 'host' && lobby.state.dept ? lobby.state.dept : settings.dept),
 };
 
 async function loadGame(id) {
@@ -520,7 +526,9 @@ async function loadGame(id) {
         ? import('./games/sampleArena/sampleArenaGame.js').then((m) => m.SampleArenaGame)
         : id === 'coldopen'
           ? import('./games/coldOpen/coldOpenGame.js').then((m) => m.ColdOpenGame)
-          : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
+          : id === 'fineprint'
+            ? import('./games/finePrint/finePrintGame.js').then((m) => m.FinePrintGame)
+            : import('./games/lastLamp/lampGame.js').then((m) => m.LampGame);
   }
   return gameModules[id];
 }
@@ -693,6 +701,41 @@ function selectProgramme(id) {
   if (lobbyView) lobbyView.render(lobby.state);
 }
 
+// Fine Print: which department of the catalogue the facts come from.
+function buildDepts() {
+  const wrap = $('#fp-dept-list');
+  if (!wrap) return;
+  wrap.innerHTML = DEPARTMENTS.map((d) => `<button type="button" class="fp-dept" role="radio" data-dept="${d.id}" aria-checked="${d.id === settings.dept}" tabindex="${d.id === settings.dept ? 0 : -1}"><span>${esc(d.short)}</span><b>${esc(d.name)}</b></button>`).join('');
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.fp-dept');
+    if (!b) return;
+    audio.unlock();
+    audio.blip();
+    selectDept(b.dataset.dept);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    const ids = DEPARTMENTS.map((d) => d.id);
+    const i = ids.indexOf(settings.dept);
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+    selectDept(ids[(i + d + ids.length) % ids.length]);
+    wrap.querySelector(`[data-dept="${settings.dept}"]`).focus();
+  });
+}
+
+function selectDept(id) {
+  settings.dept = deptById(id).id;
+  store.set('fpDept', settings.dept);
+  for (const b of document.querySelectorAll('#fp-dept-list .fp-dept')) {
+    const on = b.dataset.dept === settings.dept;
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+  if (lobby.isHost) lobby.setDept(settings.dept);
+  if (lobbyView) lobbyView.render(lobby.state);
+}
+
 // One difficulty for Soundclash and Cold Open, with a picker in each show's options.
 function buildLevels() {
   buildLevelList('#sc-level-list', LEVELS);
@@ -746,6 +789,7 @@ function selectGame(id) {
   $('#bidlock-opts').hidden = g.id !== 'bidlock';
   $('#soundclash-opts').hidden = g.id !== 'soundclash';
   $('#coldopen-opts').hidden = g.id !== 'coldopen';
+  $('#fineprint-opts').hidden = g.id !== 'fineprint';
   $('#hero').hidden = g.id !== 'bidlock';
   $('#strap-text').innerHTML = g.id === 'bidlock' ? `The $<span id="strap-budget">${settings.budget}</span> Draft` : esc(g.strap);
   $('#title-tagline').textContent = g.tagline;
@@ -1253,7 +1297,7 @@ function wireInput(guide, drawer) {
       return;
     }
     if (screen === 'arcade') {
-      if (arcade && !e.repeat && (!onControl || /^[1-6eEwasdWASDzxcZXCtT]$|^Arrow/.test(k)) && arcade.key(e)) e.preventDefault();
+      if (arcade && !e.repeat && (!onControl || /^[1-8eEwasdWASDzxcZXCtTvV]$|^Arrow/.test(k)) && arcade.key(e)) e.preventDefault();
       return;
     }
     if (screen === 'game') {
@@ -1467,6 +1511,7 @@ async function boot() {
   buildChannels();
   buildCrates();
   buildProgrammes();
+  buildDepts();
   buildLevels();
   lobbyView = new LobbyView({
     lobby,
@@ -1480,6 +1525,8 @@ async function boot() {
     onLevel: (id) => { audio.blip(); selectLevel(id); },
     programme: () => settings.programme,
     onProgramme: (id) => { audio.blip(); selectProgramme(id); },
+    dept: () => settings.dept,
+    onDept: (id) => { audio.blip(); selectDept(id); },
     summary: modeSummary,
     onStart: startRoom,
     onOpen: () => {},

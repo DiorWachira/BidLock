@@ -132,11 +132,11 @@ try {
   const reel = await makeFilm(browser);
   ok('a test film was recorded', reel.length > 20000, `${reel.length} bytes`);
 
-  // ---------- 1. The title: five shows, Cold Open's programmes and difficulty
+  // ---------- 1. The title: six shows, Cold Open's programmes and difficulty
   {
     const ctx = await context(browser, reel);
     const { page: p, errors } = await page(ctx);
-    ok('the title lists five shows', (await p.locator('#channels .channel').count()) === 5);
+    ok('the title lists six shows', (await p.locator('#channels .channel').count()) === 6);
     ok('the programme picker is hidden for other shows', !(await p.locator('#coldopen-opts').isVisible()));
     await p.locator('.channel[data-game="coldopen"]').click();
     ok('picking Cold Open shows its programmes', await p.locator('#coldopen-opts').isVisible() && (await p.locator('#co-prog-list .co-prog').count()) === 7);
