@@ -1531,6 +1531,8 @@ a.co-store:hover { text-decoration: underline; }
 .fp-verdict { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 1px 0 5px 4px; }
 .fp-line[data-verdict="knockoff"] .fp-pick, .fp-line[data-verdict="house"] .fp-pick { background: #101a4a; color: #aab4e6; }
 .fp-line[data-verdict="knockoff"] .fp-txt, .fp-line[data-verdict="house"] .fp-txt { text-decoration: line-through 2px var(--fp-red); }
+/* A knock-off you called still reads, struck through, on its dark plate. */
+.fp-line[data-verdict="knockoff"] .fp-txt span, .fp-line[data-verdict="house"] .fp-txt span { color: #aab4e6; }
 .fp-sash { font: 700 11px/1 var(--mono); letter-spacing: 0.12em; padding: 5px 8px; background: var(--fp-ink); color: var(--fp-red); border: 1px solid var(--fp-red); transform: rotate(-1.5deg); animation: fpsash 0.35s cubic-bezier(0.2, 1.5, 0.4, 1); }
 @keyframes fpsash { from { transform: rotate(-8deg) scale(1.6); opacity: 0; } }
 .fp-line[data-verdict="genuine"] .fp-pick { background: var(--fp-sun); color: var(--fp-ink); border-color: var(--fp-ink); box-shadow: 5px 5px 0 var(--fp-ink); }
