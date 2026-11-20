@@ -146,6 +146,10 @@ try {
     ok('the blank fills with the real ending', ((await p.locator('#fp-fact .fp-fill').textContent()) || '').toLowerCase() === truth.toLowerCase());
     ok('every knock-off is unmasked with its author', (await p.locator('.fp-line[data-verdict="knockoff"] .fp-sash').count()) + (await p.locator('.fp-line[data-verdict="house"]').count()) === lines - 1);
     ok('the source is linked', (await p.locator('a.fp-src').getAttribute('href')).startsWith('https://en.wikipedia.org/wiki/'));
+    // Every unmasked knock-off still reads, including one I called (light text on its dark plate).
+    await p.evaluate(() => { document.querySelectorAll('.fp-line').forEach((li) => { if (li.dataset.verdict === 'knockoff') li.dataset.picked = '1'; }); });
+    const inks = await p.locator('.fp-line[data-verdict="knockoff"] .fp-txt span').evaluateAll((ss) => [...new Set(ss.map((s) => getComputedStyle(s).color))]);
+    ok('a called knock-off stays readable', inks.length > 0 && !inks.includes('rgb(10, 15, 42)'), inks.join(' '));
     const score = await p.evaluate(() => window.__bidlock.arcade.engine.me.score);
     ok('the tote board shows my points', (await p.locator('#fp-tote li[data-me="1"] .sr-only').textContent()) === `${score.toLocaleString('en-GB')} points`);
     await shot(p, 'fineprint-reveal');
