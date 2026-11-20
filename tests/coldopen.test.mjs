@@ -19,7 +19,8 @@ test('the library: famous films, filed in programmes, each with a store ID', () 
   for (const f of FILMS) {
     assert.ok(/^\d{6,12}$/.test(f.id), f.id);
     assert.ok(f.title && f.year >= 1930 && f.year <= 2026, `${f.title} ${f.year}`);
-    assert.ok(['us', 'gb', 'au', 'in', undefined].includes(f.store), `${f.title}: ${f.store}`);
+    // English-language stores only: other stores' trailers can carry burned-in subtitles.
+    assert.ok(['us', 'gb', 'au', undefined].includes(f.store), `${f.title}: ${f.store}`);
     assert.ok(PROGRAMMES.some((p) => p.id === f.crate), f.crate);
   }
   for (const p of PROGRAMMES) assert.ok(filmsFor(p.id).length >= ROUNDS + 3, `${p.id}: ${filmsFor(p.id).length} films`);
