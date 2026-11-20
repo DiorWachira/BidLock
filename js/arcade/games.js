@@ -94,6 +94,24 @@ export const GAMES = Object.freeze([
       'The last reel is the premiere: a clean print, double points, and a wrong answer costs 250. Pick a programme of films on the title screen or in the lobby: blockbusters, heroes and villains, animated, horror and thrillers, comedy and romance, or classics.',
     ],
   },
+  {
+    id: 'fineprint',
+    name: 'Fine Print',
+    marquee: 'FINEPRNT',
+    slot: '01:00',
+    strap: 'The Overnight Shopping Hour',
+    kind: 'Bluffing',
+    tagline: 'A strange but true fact with its ending in the small print. Write a fake ending that sounds real, then phone in the genuine article.',
+    people: '2 to 6 players',
+    minSeats: 2,
+    fillTo: 6,
+    how: [
+      'Each of five offers is a strange but true fact with its ending blanked out. Write a fake ending that sounds true: your knock-off. Stuck? Take one from the warehouse.',
+      'Every knock-off is shuffled in with the real ending and read out at speed, like the small print at the end of an advert. Phone in the one you think is genuine: click it, or press 1 to 7. Not your own.',
+      'Find the genuine article: 1,000 points. Every caller your knock-off fools: 500. Give one five-star review a round (S) to the line you liked best: 100 to whoever wrote it.',
+      'Offers three and four are premium rate, double points; the closing offer is triple. The voice-over reads the small print aloud; V turns it off. Pick a department on the title screen or in the lobby.',
+    ],
+  },
 ]);
 
 export function gameById(id) {

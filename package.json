@@ -8,7 +8,7 @@
     "start": "node tools/serve.mjs",
     "rooms:dev": "wrangler dev --config server/wrangler.jsonc",
     "rooms:deploy": "wrangler deploy --config server/wrangler.jsonc",
-    "test": "node --test tests/engine.test.mjs tests/arcade.test.mjs tests/soundclash.test.mjs tests/coldopen.test.mjs tests/net.test.mjs tests/rooms.test.mjs && node tests/e2e.mjs && node tests/arcade.e2e.mjs && node tests/soundclash.e2e.mjs && node tests/coldopen.e2e.mjs && node tests/rooms.e2e.mjs"
+    "test": "node --test tests/engine.test.mjs tests/arcade.test.mjs tests/soundclash.test.mjs tests/coldopen.test.mjs tests/fineprint.test.mjs tests/net.test.mjs tests/rooms.test.mjs && node tests/e2e.mjs && node tests/arcade.e2e.mjs && node tests/soundclash.e2e.mjs && node tests/coldopen.e2e.mjs && node tests/fineprint.e2e.mjs && node tests/rooms.e2e.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.65.0",

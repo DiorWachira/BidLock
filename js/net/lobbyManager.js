@@ -448,7 +448,7 @@ export class LobbyManager {
   _blank() {
     // via: how this browser is connected ('relay', 'peer' or 'local').
     // hostAway: a player: the host's connection has dropped and the room is waiting for them.
-    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null, level: null, programme: null, via: null, hostAway: false };
+    return { role: null, status: 'idle', code: null, error: '', players: [], fillBots: true, inMatch: false, you: null, game: 'bidlock', votes: {}, genre: null, level: null, programme: null, dept: null, via: null, hostAway: false };
   }
 
   // Start downloading the multiplayer library before anyone presses a button.
@@ -558,8 +558,8 @@ export class LobbyManager {
 
   _sendLobby() {
     if (!this.isHost) return;
-    const { code, players, fillBots, inMatch, game, votes, genre, level, programme } = this.state;
-    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, genre, level, programme, you: pid });
+    const { code, players, fillBots, inMatch, game, votes, genre, level, programme, dept } = this.state;
+    for (const [pid, conn] of this.conns) conn.send({ t: WIRE.LOBBY, code, players, fillBots, inMatch, game, votes, genre, level, programme, dept, you: pid });
   }
 
   setFillBots(on) {
@@ -593,6 +593,13 @@ export class LobbyManager {
   setProgramme(id) {
     if (!this.isHost || this.state.inMatch || typeof id !== 'string' || id.length > 24) return;
     this._set({ programme: id });
+    this._sendLobby();
+  }
+
+  // Host: Fine Print's department of facts for the room.
+  setDept(id) {
+    if (!this.isHost || this.state.inMatch || typeof id !== 'string' || id.length > 24) return;
+    this._set({ dept: id });
     this._sendLobby();
   }
 
@@ -846,7 +853,7 @@ export class LobbyManager {
       return;
     }
     if (msg.t === WIRE.LOBBY) {
-      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null, level: typeof msg.level === 'string' ? msg.level : null, programme: typeof msg.programme === 'string' ? msg.programme : null, hostAway: false });
+      this._set({ status: 'open', code: msg.code, players: msg.players, fillBots: msg.fillBots, inMatch: msg.inMatch, you: msg.you, game: msg.game || 'bidlock', votes: msg.votes || {}, genre: typeof msg.genre === 'string' ? msg.genre : null, level: typeof msg.level === 'string' ? msg.level : null, programme: typeof msg.programme === 'string' ? msg.programme : null, dept: typeof msg.dept === 'string' ? msg.dept : null, hostAway: false });
       if (this._joinWait) this._joinWait.resolve();
       return;
     }

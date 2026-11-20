@@ -5,6 +5,7 @@ import { cleanName, normalizeCode, MAX_PLAYERS } from '../net/lobbyManager.js';
 import { GAMES, gameById } from '../arcade/games.js';
 import { GENRE_CHOICES, genreById, LEVELS, levelById } from '../games/sampleArena/itunesLoader.js';
 import { PROGRAMMES, programmeById, FILM_LEVELS } from '../games/coldOpen/filmLoader.js';
+import { DEPARTMENTS, deptById } from '../games/finePrint/facts.js';
 import { checkConnection, explain, summary } from '../net/netCheck.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -12,13 +13,15 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 export class LobbyView {
   // colorsFor(seats) -> css colours; summary() -> one line describing the host's settings.
-  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {}, level = () => 'normal', onLevel = () => {}, programme = () => 'all', onProgramme = () => {} }) {
+  constructor({ lobby, loadName, saveName, colorsFor, summary, onStart, onOpen, onClose, toast, defaultGame = () => 'bidlock', genre = () => 'all', onGenre = () => {}, level = () => 'normal', onLevel = () => {}, programme = () => 'all', onProgramme = () => {}, dept = () => 'all', onDept = () => {} }) {
     this.defaultGame = defaultGame;
     this.genre = genre;
     this.level = level;
     this.onLevel = onLevel;
     this.programme = programme;
     this.onProgramme = onProgramme;
+    this.dept = dept;
+    this.onDept = onDept;
     this.onGenre = onGenre;
     this.lobby = lobby;
     this.saveName = saveName;
@@ -62,6 +65,8 @@ export class LobbyView {
       if (l && this.lobby.isHost) this.onLevel(l.dataset.level);
       const pg = e.target.closest('button[data-programme]');
       if (pg && this.lobby.isHost) this.onProgramme(pg.dataset.programme);
+      const dp = e.target.closest('button[data-dept]');
+      if (dp && this.lobby.isHost) this.onDept(dp.dataset.dept);
     });
     this.el.checkBtn.addEventListener('click', () => this.runCheck());
     this.el.copy.addEventListener('click', () => this._copy());
@@ -235,7 +240,7 @@ export class LobbyView {
     this.el.games.dataset.host = host ? '1' : '0';
     const crate = genreById(state.genre || (host ? this.genre() : 'all')).id;
     const lvl = levelById(state.level || (host ? this.level() : 'normal')).id;
-    const picks = state.game === 'soundclash' || state.game === 'coldopen';
+    const picks = state.game === 'soundclash' || state.game === 'coldopen' || state.game === 'fineprint';
     const can = host && !state.inMatch ? '' : 'disabled';
     this.el.crates.hidden = !picks;
     const levels = (list) => `<p class="lbl">DIFFICULTY</p><div class="sc-level-list">${list.map((l) => `<button type="button" class="sc-level" data-level="${l.id}" aria-pressed="${l.id === lvl}" ${can}><b>${esc(l.name)}</b><span>${esc(l.line)}</span></button>`).join('')}</div>`;
@@ -246,6 +251,10 @@ export class LobbyView {
       const prog = programmeById(state.programme || (host ? this.programme() : 'all')).id;
       this.el.crates.setAttribute('aria-label', 'Cold Open programme');
       this.el.crates.innerHTML = `<p class="lbl">TONIGHT'S PROGRAMME${host ? '' : ' · THE HOST PICKS'}</p>${PROGRAMMES.map((g) => `<button type="button" class="co-prog" data-programme="${g.id}" aria-pressed="${g.id === prog}" ${can}><span>${esc(g.short)}</span><b>${esc(g.name)}</b></button>`).join('')}${levels(FILM_LEVELS)}`;
+    } else if (state.game === 'fineprint') {
+      const dep = deptById(state.dept || (host ? this.dept() : 'all')).id;
+      this.el.crates.setAttribute('aria-label', 'Fine Print department');
+      this.el.crates.innerHTML = `<p class="lbl">TONIGHT'S DEPARTMENT${host ? '' : ' · THE HOST PICKS'}</p>${DEPARTMENTS.map((d) => `<button type="button" class="fp-dept" data-dept="${d.id}" aria-pressed="${d.id === dep}" ${can}><span>${esc(d.short)}</span><b>${esc(d.name)}</b></button>`).join('')}`;
     } else this.el.crates.innerHTML = '';
     const seats = host ? this.lobby.seats() : [
       ...state.players.filter((p) => !p.away).map((p) => ({ name: p.name, kind: 'human', pid: p.pid })),

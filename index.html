@@ -61,7 +61,7 @@
       <!-- Title screen -->
       <section id="title" aria-labelledby="title-h">
         <div class="title-panel">
-          <p class="slug" id="title-slug">CH 20 · TONIGHT'S SCHEDULE · FIVE SHOWS</p>
+          <p class="slug" id="title-slug">CH 20 · TONIGHT'S SCHEDULE · SIX SHOWS</p>
           <div id="channels" class="channels" role="radiogroup" aria-label="Choose a game"></div>
           <canvas id="logo" class="logo"></canvas>
           <h1 id="title-h" class="strap"><span id="strap-text">The $<span id="strap-budget">20</span> Draft</span></h1>
@@ -99,6 +99,11 @@
             <div id="co-prog-list" class="sc-crate-list co-prog-list" role="radiogroup" aria-label="Programme of films"></div>
             <p class="sc-level-head">Difficulty</p>
             <div id="co-level-list" class="sc-level-list" role="radiogroup" aria-label="Difficulty"></div>
+          </fieldset>
+
+          <fieldset id="fineprint-opts" class="sc-crates fp-depts" hidden>
+            <legend>Department · where tonight's facts come from</legend>
+            <div id="fp-dept-list" class="sc-crate-list fp-dept-list" role="radiogroup" aria-label="Department of facts"></div>
           </fieldset>
 
           <div class="title-actions">
@@ -249,7 +254,7 @@
       <div id="lobby-menu" class="lobby-menu">
         <div class="lobby-card">
           <h3>Create a room</h3>
-          <p>You host. You get a five-character code to send to your friends, and you choose which of the five shows the room plays. Everyone can vote.</p>
+          <p>You host. You get a five-character code to send to your friends, and you choose which of the six shows the room plays. Everyone can vote.</p>
           <button id="lobby-create" class="btn btn-live" type="button"><span class="b-label">CREATE LOBBY</span></button>
         </div>
         <div class="lobby-card">
@@ -271,7 +276,7 @@
         <ol id="lobby-players" class="lobby-players"></ol>
         <label class="check" id="lobby-fill-wrap">
           <input type="checkbox" id="lobby-fill" checked>
-          <span><b>Fill empty seats with AI bots</b> Bots take the free seats: up to 4 in BidLock, 12 in Trapdoor Royale, 6 in Last Lamp, Soundclash and Cold Open.</span>
+          <span><b>Fill empty seats with AI bots</b> Bots take the free seats: up to 4 in BidLock, 12 in Trapdoor Royale, 6 in Last Lamp, Soundclash, Cold Open and Fine Print.</span>
         </label>
         <p id="lobby-summary" class="lobby-summary"></p>
         <div class="lobby-actions">
